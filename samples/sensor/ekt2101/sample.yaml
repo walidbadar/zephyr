@@ -1,0 +1,11 @@
+sample:
+  name: EKT2101 capacitive touchpad
+tests:
+  sample.sensor.ekt2101:
+    harness: sensor
+    tags:
+      - samples
+      - sensor
+    depends_on:
+      - i2c
+      - ekt2101

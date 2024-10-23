@@ -1,0 +1,16 @@
+/*
+ * Copyright (c) 2024, Muhammad Waleed Badar
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+&i2c1 {
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+
+	ekt2101: ekt2101@10 {
+		compatible = "elan,ekt2101";
+		reg = <0x10>;
+        int-gpios = <&gpioa 1 GPIO_ACTIVE_HIGH>;
+	};
+};
