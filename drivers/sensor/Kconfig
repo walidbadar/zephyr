@@ -121,6 +121,7 @@ source "drivers/sensor/apds9253/Kconfig"
 source "drivers/sensor/apds9960/Kconfig"
 source "drivers/sensor/current_amp/Kconfig"
 source "drivers/sensor/ens160/Kconfig"
+source "drivers/sensor/elan/Kconfig"
 source "drivers/sensor/explorir_m/Kconfig"
 source "drivers/sensor/f75303/Kconfig"
 source "drivers/sensor/fcx_mldx5/Kconfig"
@@ -145,5 +146,6 @@ source "drivers/sensor/tsic_xx6/Kconfig"
 source "drivers/sensor/veaa_x_3/Kconfig"
 source "drivers/sensor/voltage_divider/Kconfig"
 source "drivers/sensor/ene_tach_kb1200/Kconfig"
+
 
 endif # SENSOR

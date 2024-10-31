@@ -138,61 +138,6 @@ int ekt2101_trigger_set(const struct device *dev,
 	return 0;
 }
 
-// int ekt2101_trigger_set(const struct device *dev,
-// 			const struct sensor_trigger *trig,
-// 			sensor_trigger_handler_t handler)
-// {
-// 	int ret;
-// 	const struct ekt2101_config *config = dev->config;
-// 	struct ekt2101_data *drv_data = dev->data;
-// 	uint8_t *write_buf;
-
-// 	ret = gpio_pin_interrupt_configure_dt(&config->interrupt,
-// 					      GPIO_INT_DISABLE);
-// 	if (ret != 0) {
-// 		LOG_ERR("Unable to configure interrupt to disable: %d", ret);
-// 		return ret;
-// 	}
-
-// 	if(trig->type == SENSOR_TRIG_TAP) {
-// 		drv_data->th_handler = handler;
-// 		drv_data->th_trigger = trig;
-// 		drv_data->hw_data.pid = EKT2101_PID_3;
-// 		drv_data->hw_data.reg = EKT2101_READ_BUTTON_STATUS;
-// 		drv_data->hw_data.reserve = EKT2101_READ_BUTTON_STATUS;
-		
-// 		write_buf = struct_to_bytes(&drv_data->hw_data);
-// 		ret = i2c_write_dt(&config->i2c, write_buf, EKT2101_PACKET_SIZE);
-// 		if (ret != 0) {
-// 			LOG_ERR("Unable to write sensor data: %d", ret);;
-// 			return ret;
-// 		}
-// 		k_usleep(50);
-
-// 	} else if(trig->type == SENSOR_TRIG_DATA_READY){
-// 		drv_data->th_handler = handler;
-// 		drv_data->th_trigger = trig;
-// 	} else {
-// 		LOG_ERR("Unsupported sensor trigger: %d", ret);
-// 		return -ENOTSUP;
-// 	}
-
-// 	ret = ekt2101_get_touchpad_data(dev, &drv_data->hw_data);
-// 	if (ret != 0) {
-// 		LOG_ERR("Unable to get sensor data: %d", ret);
-// 		return ret;
-// 	}
-
-// 	ret = gpio_pin_interrupt_configure_dt(&config->interrupt,
-// 					      GPIO_INT_EDGE_TO_INACTIVE);
-// 	if (ret != 0) {
-// 		LOG_ERR("Unable to configure interrupt level: %d", ret);
-// 		return ret;
-// 	}
-
-// 	return 0;
-// }
-
 int ekt2101_init_interrupt(const struct device *dev)
 {
 	struct ekt2101_data *drv_data = dev->data;

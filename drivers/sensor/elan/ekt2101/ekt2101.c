@@ -1,101 +1,84 @@
 /*
- * Copyright (c) 2018 Philémon Jaermann
+ * Copyright (c) 2024 Muhammad Waleed Badar
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#define DT_DRV_COMPAT elan_EKT2101
+#define DT_DRV_COMPAT elan_ekt2101
 
-#include <zephyr/drivers/i2c.h>
+#include <math.h>
 #include <zephyr/init.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/logging/log.h>
-
-LOG_MODULE_REGISTER(ekt2101, CONFIG_SENSOR_LOG_LEVEL);
-
 #include "ekt2101.h"
 
-static int ekt2101_sample_fetch(const struct device *dev,
-				   enum sensor_channel chan)
+#include <zephyr/logging/log.h>
+LOG_MODULE_REGISTER(EKT2101, CONFIG_SENSOR_LOG_LEVEL);
+
+int ekt2101_get_touchpad_data(const struct device *dev,
+			   struct ekt2101_reg_data *hw_data)
 {
+	int ret;
+	uint8_t reg_data[EKT2101_PACKET_SIZE];
 	const struct ekt2101_config *config = dev->config;
-	struct ekt2101_data *drv_data = dev->data;
-	uint8_t magn_buf[6];
-	uint8_t status;
 
-	/* Check data ready flag */
-	if (i2c_reg_read_byte_dt(&config->i2c, ekt2101_SR_REG_M,
-				 &status) < 0) {
-		LOG_ERR("Failed to read status register.");
-		return -EIO;
+	ret = i2c_read_dt(&config->i2c, reg_data, EKT2101_PACKET_SIZE);
+	if (ret != 0) {
+		return ret;
 	}
 
-	if (!(status & ekt2101_DRDY)) {
-		LOG_ERR("Sensor data not available.");
-		return -EIO;
-	}
-
-	if (i2c_burst_read_dt(&config->i2c, ekt2101_REG_X_LSB,
-			      magn_buf, 6) < 0) {
-		LOG_ERR("Could not read magn axis data.");
-		return -EIO;
-	}
-
-	drv_data->magn_x = (magn_buf[0] << 8) | magn_buf[1];
-	drv_data->magn_y = (magn_buf[4] << 8) | magn_buf[5];
-	drv_data->magn_z = (magn_buf[2] << 8) | magn_buf[3];
+	hw_data->reg = ((reg_data[2] & 0x0f) << 16) + (reg_data[1] << 8) + (reg_data[0] & 0xfc);
 
 	return 0;
 }
 
-static void ekt2101_convert_xy(struct sensor_value *val,
-			       int64_t raw_val)
+static void ekt2101_touchpad_convert(const struct device *dev,
+				  struct sensor_value *val)
 {
-	val->val1 = raw_val / ekt2101_LSB_GAUSS_XY;
-	val->val2 = (1000000 * raw_val / ekt2101_LSB_GAUSS_XY) % 1000000;
+	uint32_t button_value;
+	struct ekt2101_data *drv_data = dev->data;
+	button_value = drv_data->hw_data.reg;
+
+	for(uint8_t bits=0; bits<18; bits++){
+        if(button_value == (int)pow(2,bits))
+			val->val1 = button_value + 1;
+    }
+
+	LOG_DBG("Button value: %d", val->val1);
 }
 
-static void ekt2101_convert_z(struct sensor_value *val,
-			       int64_t raw_val)
+static int ekt2101_sample_fetch(const struct device *dev,
+				   enum sensor_channel chan)
 {
-	val->val1 = raw_val / ekt2101_LSB_GAUSS_Z;
-	val->val2 = (1000000 * raw_val / ekt2101_LSB_GAUSS_Z) % 1000000;
+	int ret;
+	struct ekt2101_data *drv_data = dev->data;
+
+	ret = ekt2101_get_touchpad_data(dev, &drv_data->hw_data);
+	if (ret != 0) {
+		LOG_ERR("Unable to get sensor data: %d", ret);
+		return ret;
+	}
+	return 0;
 }
 
 static int ekt2101_channel_get(const struct device *dev,
 				  enum sensor_channel chan,
 				  struct sensor_value *val)
 {
-	struct ekt2101_data *drv_data = dev->data;
+	ekt2101_touchpad_convert(dev, val);
 
-	switch (chan) {
-	case  SENSOR_CHAN_X:
-		ekt2101_convert_xy(val, drv_data->magn_x);
-		break;
-	case SENSOR_CHAN_Y:
-		ekt2101_convert_xy(val, drv_data->magn_y);
-		break;
-	case SENSOR_CHAN_Z:
-		ekt2101_convert_z(val, drv_data->magn_z);
-		break;
-	case SENSOR_CHAN_XYZ:
-		ekt2101_convert_xy(val, drv_data->magn_x);
-		ekt2101_convert_xy(val + 1, drv_data->magn_y);
-		ekt2101_convert_z(val + 2, drv_data->magn_z);
-		break;
-	default:
-		return -ENOTSUP;
-	}
 	return 0;
 }
 
 static const struct sensor_driver_api ekt2101_driver_api = {
 	.sample_fetch = ekt2101_sample_fetch,
 	.channel_get = ekt2101_channel_get,
+	.trigger_set = ekt2101_trigger_set,
 };
 
 static int ekt2101_init(const struct device *dev)
 {
+	int ret;
 	const struct ekt2101_config *config = dev->config;
 
 	if (!device_is_ready(config->i2c.bus)) {
@@ -103,39 +86,35 @@ static int ekt2101_init(const struct device *dev)
 		return -ENODEV;
 	}
 
-	/* Set magnetometer output data rate */
-	if (i2c_reg_write_byte_dt(&config->i2c, ekt2101_CRA_REG_M,
-				  ekt2101_ODR_BITS) < 0) {
-		LOG_ERR("Failed to configure chip.");
+	ret = ekt2101_init_interrupt(dev);
+	if (ret != 0) {
+		LOG_ERR("Failed to initialize interrupt!");
 		return -EIO;
 	}
 
-	/* Set magnetometer full scale range */
-	if (i2c_reg_write_byte_dt(&config->i2c, ekt2101_CRB_REG_M,
-				  ekt2101_FS_BITS) < 0) {
-		LOG_ERR("Failed to set magnetometer full scale range.");
-		return -EIO;
-	}
-
-	/* Continuous update */
-	if (i2c_reg_write_byte_dt(&config->i2c, ekt2101_MR_REG_M,
-				  ekt2101_CONT_UPDATE) < 0) {
-		LOG_ERR("Failed to enable continuous data update.");
-		return -EIO;
-	}
 	return 0;
 }
 
-#define ekt2101_DEFINE(inst)								\
-	static struct ekt2101_data ekt2101_data_##inst;				\
-												\
-	static const struct ekt2101_config ekt2101_config_##inst = {		\
-		.i2c = I2C_DT_SPEC_INST_GET(inst),						\
-	};											\
-												\
-	SENSOR_DEVICE_DT_INST_DEFINE(inst, ekt2101_init, NULL,				\
-			      &ekt2101_data_##inst, &ekt2101_config_##inst,	\
-			      POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,				\
-			      &ekt2101_driver_api);					\
+#define EKT2101_DEVICE_INIT(inst)					\
+	SENSOR_DEVICE_DT_INST_DEFINE(inst,				\
+			      ekt2101_init,				\
+			      NULL,					\
+			      &ekt2101_data_##inst,			\
+			      &ekt2101_config_##inst,			\
+			      POST_KERNEL,				\
+			      CONFIG_SENSOR_INIT_PRIORITY,		\
+			      &ekt2101_driver_api);
 
-DT_INST_FOREACH_STATUS_OKAY(ekt2101_DEFINE)
+#define EKT2101_CONFIG(inst)					\
+	{								\
+		.i2c = I2C_DT_SPEC_INST_GET(inst),		\
+		.interrupt = GPIO_DT_SPEC_INST_GET_OR(inst, int_gpios, { 0 }),		\
+	}
+
+#define EKT2101_DEFINE(inst)								\
+	static struct ekt2101_data ekt2101_data_##inst;				\
+	static const struct ekt2101_config ekt2101_config_##inst =		\
+		EKT2101_CONFIG(inst);				\
+	EKT2101_DEVICE_INIT(inst)
+
+DT_INST_FOREACH_STATUS_OKAY(EKT2101_DEFINE)

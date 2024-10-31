@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 Philémon Jaermann
+ * Copyright (c) 2024 Muhammad Waleed Badar
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -8,78 +8,59 @@
 #define __SENSOR_EKT2101_
 
 #include <zephyr/drivers/i2c.h>
+#include <zephyr/drivers/sensor.h>
+#include <zephyr/types.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/kernel.h>
+#include <zephyr/sys/util.h>
 
-#define LSM303_DLHC_X_EN_BIT	BIT(0)
-#define EKT2101_Y_EN_BIT	BIT(1)
-#define EKT2101_Z_EN_BIT	BIT(2)
-#define EKT2101_EN_BITS		(LSM303_DLHC_X_EN_BIT | \
-					EKT2101_Y_EN_BIT | \
-					EKT2101_Z_EN_BIT)
+#define EKT2101_PACKET_SIZE 0x04
+#define EKT2101_RESERVE_BIT 0x01
+#define EKT2101_PID_3		0x53
+#define EKT2101_PID_4		0x54
 
-#if	(CONFIG_EKT2101_ODR == 0)
-	#define EKT2101_DRDY_WAIT_TIME	134
-#elif	(CONFIG_EKT2101_ODR == 1)
-	#define EKT2101_DRDY_WAIT_TIME	67
-#elif	(CONFIG_EKT2101_ODR == 2)
-	#define EKT2101_DRDY_WAIT_TIME	34
-#elif	(CONFIG_EKT2101_ODR == 3)
-	#define EKT2101_DRDY_WAIT_TIME	14
-#elif	(CONFIG_EKT2101_ODR == 4)
-	#define EKT2101_DRDY_WAIT_TIME	7
-#elif	(CONFIG_EKT2101_ODR == 5)
-	#define EKT2101_DRDY_WAIT_TIME	4
-#elif	(CONFIG_EKT2101_ODR == 6)
-	#define EKT2101_DRDY_WAIT_TIME	2
-#elif	(CONFIG_EKT2101_ODR == 7)
-	#define EKT2101_DRDY_WAIT_TIME	1
+#define EKT2101_READ_BUTTON_STATUS		0x01
+#define EKT2101_DIRECT_KEY_IO_SETTING	0x02
+#define EKT2101_OPERATION_SETTING		0x03
+#define EKT2101_TP_SENSIVITY_SETTING	0x04
+#define EKT2101_PWR_SAVING_SETTING		0x05
+#define EKT2101_TP_CALIBRATION_SETTING	0x06
+
+struct ekt2101_reg_data {
+    uint8_t pid     : 8;
+    uint8_t reg     : 4;
+    uint32_t data   : 18;
+    uint8_t reserve : 2;
+} __attribute__((packed));
+
+struct ekt2101_data {
+	struct ekt2101_reg_data hw_data;
+
+	struct gpio_callback gpio_cb;
+	sensor_trigger_handler_t th_handler;
+	const struct sensor_trigger *th_trigger;
+
+	const struct device *dev;
+
+#if defined(CONFIG_EKT2101_TRIGGER_OWN_THREAD)
+	K_KERNEL_STACK_MEMBER(thread_stack, CONFIG_EKT2101_THREAD_STACK_SIZE);
+	struct k_sem gpio_sem;
+	struct k_thread thread;
+#elif defined(CONFIG_EKT2101_TRIGGER_GLOBAL_THREAD)
+		struct k_work work;
 #endif
-
-#define EKT2101_ODR_SHIFT	2
-#define EKT2101_ODR_BITS	(CONFIG_EKT2101_ODR << \
-					EKT2101_ODR_SHIFT)
-
-#if	(CONFIG_EKT2101_RANGE == 1)
-	#define EKT2101_LSB_GAUSS_XY    1100
-	#define EKT2101_LSB_GAUSS_Z     980
-#elif	(CONFIG_EKT2101_RANGE == 2)
-	#define EKT2101_LSB_GAUSS_XY    855
-	#define EKT2101_LSB_GAUSS_Z     760
-#elif	(CONFIG_EKT2101_RANGE == 3)
-	#define EKT2101_LSB_GAUSS_XY    670
-	#define EKT2101_LSB_GAUSS_Z     600
-#elif	(CONFIG_EKT2101_RANGE == 4)
-	#define EKT2101_LSB_GAUSS_XY    450
-	#define EKT2101_LSB_GAUSS_Z     400
-#elif	(CONFIG_EKT2101_RANGE == 5)
-	#define EKT2101_LSB_GAUSS_XY    400
-	#define EKT2101_LSB_GAUSS_Z     355
-#elif	(CONFIG_EKT2101_RANGE == 6)
-	#define EKT2101_LSB_GAUSS_XY    330
-	#define EKT2101_LSB_GAUSS_Z     295
-#elif	(CONFIG_EKT2101_RANGE == 7)
-	#define EKT2101_LSB_GAUSS_XY    230
-	#define EKT2101_LSB_GAUSS_Z     205
-#endif
-
-#define EKT2101_FS_SHIFT	5
-#define EKT2101_FS_BITS		(CONFIG_EKT2101_RANGE << \
-					EKT2101_FS_SHIFT)
-#define EKT2101_CONT_UPDATE	0x00
-#define EKT2101_DRDY		BIT(0)
-
-#define EKT2101_CRA_REG_M		0x00
-#define EKT2101_CRB_REG_M		0x01
-#define EKT2101_MR_REG_M		0x02
-#define EKT2101_REG_X_LSB	0x03
-#define EKT2101_SR_REG_M		0x09
-
-struct lsm303dlhc_data {
-	int16_t magn_x;
-	int16_t magn_y;
-	int16_t magn_z;
 };
 
-struct lsm303dlhc_config {
+struct ekt2101_config {
 	struct i2c_dt_spec i2c;
+	struct gpio_dt_spec interrupt;
 };
+
+int ekt2101_trigger_set(const struct device *dev,
+			const struct sensor_trigger *trig,
+			sensor_trigger_handler_t handler);
+
+int ekt2101_init_interrupt(const struct device *dev);
+
 #endif /* _SENSOR_EKT2101_ */

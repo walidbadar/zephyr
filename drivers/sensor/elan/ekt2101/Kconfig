@@ -1,41 +1,46 @@
-# EKT2101 Three Axis Magnetometer configuration options
+# EKT2101 capacitive touchpad configuration options
 
-# Copyright (c) 2018 Philémon Jaermann
+# Copyright (c) 2024 Muhammad Waleed Badar
 # SPDX-License-Identifier: Apache-2.0
 
 menuconfig EKT2101
-	bool "EKT2101 Three Axis Magnetometer"
+	bool "EKT2101 capacitive touchpad"
 	default y
-	depends on DT_HAS_ST_EKT2101_ENABLED
+	depends on DT_HAS_ELAN_EKT2101_ENABLED
 	select I2C
 	help
-	  Enable driver for EKT2101 I2C-based triaxial magnetometer sensor.
+	  Enable driver for ekt2101 I2C-based capacitive touchpad sensor.
 
-config EKT2101_RANGE
-	int "Magnetometer measurement range"
-	depends on EKT2101
-	range 1 7
-	default 1
-	help
-	  1: +/-1.3 gauss
-	  2: +/-1.9 gauss
-	  3: +/-2.5 gauss
-	  4: +/-4 gauss
-	  5: +/-4.7 gauss
-	  6: +/-5.6 gauss
-	  7: +/-8.1 gauss
+if EKT2101
 
-config EKT2101_ODR
-	int "Data rate frequency"
-	depends on EKT2101
-	range 0 7
-	default 0
+choice
+	prompt "Trigger mode"
+	default EKT2101_TRIGGER_GLOBAL_THREAD
 	help
-	  0: 0.75Hz
-	  1: 1.5 Hz
-	  2: 3Hz
-	  3: 7.5Hz
-	  4: 15Hz
-	  5: 30Hz
-	  6: 75Hz
-	  7: 220Hz
+	  Specify the type of triggering used by the driver.
+
+	config EKT2101_TRIGGER_GLOBAL_THREAD
+		bool "Use global thread"
+		depends on GPIO
+
+	config EKT2101_TRIGGER_OWN_THREAD
+		bool "Use own thread"
+		depends on GPIO
+
+endchoice
+
+config EKT2101_THREAD_PRIORITY
+	int "Thread priority"
+	depends on EKT2101_TRIGGER_OWN_THREAD
+	default 10
+	help
+	  Priority of thread used by the driver to handle interrupts.
+
+config EKT2101_THREAD_STACK_SIZE
+	int "Thread stack size"
+	depends on EKT2101_TRIGGER_OWN_THREAD
+	default 1024
+	help
+	  Stack size of thread used by the driver to handle interrupts.
+
+endif # EKT2101
