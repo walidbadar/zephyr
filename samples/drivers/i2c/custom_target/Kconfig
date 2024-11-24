@@ -1,0 +1,26 @@
+#  Copyright (c) 2024 Muhammad Waleed Badar
+#  SPDX-License-Identifier: Apache-2.0
+
+mainmenu "I2C Slave Device"
+
+menu "I2C Slave Device"
+
+config I2C_SLAVE_ADDR
+	int "Configure I2C slave address"
+	default 8
+
+config I2C_SWITCH_ADDR
+	int "Configure I2C switch address"
+	default 1
+
+config BUTTON
+	int "Configure numbers of button"
+	default 1
+
+config SWITCH
+	int "Configure numbers of switch"
+	default 1
+
+endmenu
+
+source "Kconfig.zephyr"

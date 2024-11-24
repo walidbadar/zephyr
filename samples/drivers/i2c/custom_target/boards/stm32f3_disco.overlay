@@ -1,0 +1,29 @@
+/*
+ * Copyright (c) 2024 Muhammad Waleed Badar
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/ {
+	aliases {
+		sw0 = &sw0;
+        i2c = &i2c2;
+	};
+
+	leds {
+		compatible = "gpio-leds";
+		sw0: rst_sw {
+			gpios = <&gpioc 9 GPIO_ACTIVE_LOW>;
+			label = "Reset switch";
+            status = "okay";
+		};
+	};
+};
+
+&gpioc {
+	status = "okay";
+};
+
+&i2c2 {
+	status = "okay";
+};
