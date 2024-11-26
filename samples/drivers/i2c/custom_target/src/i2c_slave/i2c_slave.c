@@ -41,24 +41,25 @@ int sample_target_write_received_cb(struct i2c_target_config *config, uint8_t va
 	LOG_DBG("sample target write received: val = 0x%02x, last_byte = 0x%02x", val, last_byte);
 
 	/* ADC request handler */
-	if(val == 0){
+	if(last_byte < CONFIG_SWITCH_ADDR && val == 0){
 		select_adc_ch0 = 1;
 		LOG_DBG("ADC CH0 Selected");
 	}
-	else if(val == 1){
+	else if(last_byte < CONFIG_SWITCH_ADDR && val == 1){
 		select_adc_ch1 = 1;
 		LOG_DBG("ADC CH1 Selected");
 	}
 	
 	/* Switch request handler */
-	if(last_byte == CONFIG_SWITCH_ADDR && val == 1){
-		digital_write(&leds[0], 1);
-		LOG_DBG("digital_write: HIGH");
-	}
-	else if(last_byte == CONFIG_SWITCH_ADDR && val == 0){
+	if(last_byte == CONFIG_SWITCH_ADDR && val == 0){
 		digital_write(&leds[0], 0);
 		LOG_DBG("digital_write: LOW");
 	}
+	else if(last_byte == CONFIG_SWITCH_ADDR && val == 1){
+		digital_write(&leds[0], 1);
+		LOG_DBG("digital_write: HIGH");
+	}
+
 		
 	last_byte = val;
 	return 0;

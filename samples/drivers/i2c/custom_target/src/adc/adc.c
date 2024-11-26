@@ -56,8 +56,6 @@ int read_adc(uint8_t ch)
 		LOG_ERR("Could not read (%d)", ret);
 		return 0;
 	}
-
-	LOG_DBG("ADC CH: %d, value: %d", 0,  (int)buf);
 	
 	return (int)buf;
 }
