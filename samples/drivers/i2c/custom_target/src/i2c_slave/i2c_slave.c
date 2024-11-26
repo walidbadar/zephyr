@@ -5,13 +5,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "adc.h"
 #include "gpio.h"
 #include "i2c_slave.h"
 
 LOG_MODULE_REGISTER(i2c_log, LOG_LEVEL_DBG);
 
+#define ADC_HIGH_BYTE(x) ((x >> 8) & 0x00FF)
+#define ADC_LOW_BYTE(x) (x  & 0x00FF)
+
 static const struct device *bus = DEVICE_DT_GET(DT_ALIAS(i2c));
 static uint8_t last_byte;
+static bool select_adc_ch0;
+static bool select_adc_ch1;
+static uint16_t adc_ch0;
+static uint16_t adc_ch1;
 
 /*
  * @brief Callback which is called when a write request is received from the master.
@@ -31,12 +39,23 @@ int sample_target_write_requested_cb(struct i2c_target_config *config)
 int sample_target_write_received_cb(struct i2c_target_config *config, uint8_t val)
 {
 	LOG_DBG("sample target write received: val = 0x%02x, last_byte = 0x%02x", val, last_byte);
+
+	/* ADC request handler */
+	if(val == 0){
+		select_adc_ch0 = 1;
+		LOG_DBG("ADC CH0 Selected");
+	}
+	else if(val == 1){
+		select_adc_ch1 = 1;
+		LOG_DBG("ADC CH1 Selected");
+	}
 	
-	if(last_byte == CONFIG_I2C_SWITCH_ADDR && val == 1){
+	/* Switch request handler */
+	if(last_byte == CONFIG_SWITCH_ADDR && val == 1){
 		digital_write(&leds[0], 1);
 		LOG_DBG("digital_write: HIGH");
 	}
-	else if(last_byte == CONFIG_I2C_SWITCH_ADDR && val == 0){
+	else if(last_byte == CONFIG_SWITCH_ADDR && val == 0){
 		digital_write(&leds[0], 0);
 		LOG_DBG("digital_write: LOW");
 	}
@@ -53,7 +72,16 @@ int sample_target_write_received_cb(struct i2c_target_config *config, uint8_t va
 int sample_target_read_requested_cb(struct i2c_target_config *config, uint8_t *val)
 {
 	LOG_DBG("sample target read request: 0x%02x", *val);
-	*val = 0x42;
+
+	if(select_adc_ch0 == 1) {
+		*val = ADC_LOW_BYTE(adc_ch0);
+		LOG_DBG("ADC CH: %d, LOW_BYTE: 0x%02x", 0,  *val);
+	}
+	else if(select_adc_ch1 == 1) {
+		*val = ADC_LOW_BYTE(adc_ch1);
+		LOG_DBG("ADC CH: %d, LOW_BYTE: 0x%02x", 1,  *val);
+	}
+
 	return 0;
 }
 
@@ -65,7 +93,18 @@ int sample_target_read_requested_cb(struct i2c_target_config *config, uint8_t *v
 int sample_target_read_processed_cb(struct i2c_target_config *config, uint8_t *val)
 {
 	LOG_DBG("sample target read processed: 0x%02x", *val);
-	*val = 0x43;
+
+	if(select_adc_ch0 == 1) {
+		*val = ADC_HIGH_BYTE(adc_ch0);
+		select_adc_ch0 = 0;
+		LOG_DBG("ADC CH: %d, HIGH_BYTE: 0x%02x", 0,  *val);
+	}
+	else if(select_adc_ch1 == 1) {
+		*val = ADC_HIGH_BYTE(adc_ch1);
+		select_adc_ch1 = 0;
+		LOG_DBG("ADC CH: %d, HIGH_BYTE: 0x%02x", 1,  *val);
+	}
+
 	return 0;
 }
 
@@ -89,20 +128,29 @@ static struct i2c_target_callbacks sample_target_callbacks = {
 
 int8_t init_i2c_slave(void)
 {
+	LOG_DBG("i2c custom target sample");
+	
 	struct i2c_target_config target_cfg = {
 		.address = CONFIG_I2C_SLAVE_ADDR,
 		.callbacks = &sample_target_callbacks,
 	};
-
-	LOG_DBG("i2c custom target sample");
 
 	if (i2c_target_register(bus, &target_cfg) < 0) {
 		LOG_ERR("Failed to register target");
 		return -1;
 	}
 
-	while (1)
-		k_usleep(1);
+	while (1) {
 
+		if(select_adc_ch0 == 1) {
+			adc_ch0 = read_adc(0);
+			LOG_DBG("ADC CH: %d, value: %d", 0,  adc_ch0);
+		}
+		else if(select_adc_ch1 == 1) {
+			adc_ch1 = read_adc(1);
+			LOG_DBG("ADC CH: %d, value: %d", 0,  adc_ch0);
+		}
+		k_usleep(1);
+	}
 	return 0;
 }

@@ -5,17 +5,19 @@ cmake_minimum_required(VERSION 3.20.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(i2c_custom_target)
 
-set (APP_SOURCES 
+set (APP_SOURCES
+   src/adc/adc.c
    src/gpio/gpio.c
    src/i2c_slave/i2c_slave.c
 )
 
-target_sources(app PRIVATE 
-   src/main.c
+target_sources(app PRIVATE
    ${APP_SOURCES}
+   src/main.c
 )
 
 target_include_directories(app PRIVATE
+   src/adc/
    src/gpio/
    src/i2c_slave/
 )

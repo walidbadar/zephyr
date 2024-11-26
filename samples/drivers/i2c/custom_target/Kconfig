@@ -9,9 +9,17 @@ config I2C_SLAVE_ADDR
 	int "Configure I2C slave address"
 	default 8
 
-config I2C_SWITCH_ADDR
-	int "Configure I2C switch address"
+config ADC_CH0_ADDR
+	int "Configure ADC channel 0 address"
+	default 0
+
+config ADC_CH1_ADDR
+	int "Configure ADC channel 1 address"
 	default 1
+
+config SWITCH_ADDR
+	int "Configure I2C switch address"
+	default 2
 
 config BUTTON
 	int "Configure numbers of button"

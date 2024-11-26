@@ -14,6 +14,7 @@ struct gpio_dt_spec leds[CONFIG_SWITCH] = {
 };
 
 int8_t pin_mode(struct gpio_dt_spec *user_gpio, uint32_t dir) {
+    
     int8_t ret=0;
 
     if (!gpio_is_ready_dt(user_gpio)) {
