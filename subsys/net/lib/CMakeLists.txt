@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 add_subdirectory(utils)
+add_subdirectory_ifdef(CONFIG_ASTERIX_CAT240 asterix_cat240)
 add_subdirectory_ifdef(CONFIG_COAP coap)
 add_subdirectory_ifdef(CONFIG_LWM2M lwm2m)
 add_subdirectory_ifdef(CONFIG_SOCKS socks)
