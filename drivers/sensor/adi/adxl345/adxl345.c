@@ -406,33 +406,58 @@ static DEVICE_API(sensor, adxl345_api_funcs) = {
  * @param int1 -  INT1 interrupt pins.
  * @return 0 in case of success, negative error code otherwise.
  */
-static int adxl345_interrupt_config(const struct device *dev,
-				    uint8_t int1)
+int adxl345_interrupt_config(const struct device *dev,
+				    uint8_t int1, bool selected_int2)
 {
 	int ret;
+	uint8_t int_map, samples_count;
+	struct adxl345_sample sample;
 	const struct adxl345_dev_config *cfg = dev->config;
 
-	ret = adxl345_reg_write_byte(dev, ADXL345_INT_MAP, cfg->route_to_int2 ? int1 : ~int1);
+	ret = adxl345_reg_read_byte(dev, ADXL345_INT_MAP, &int_map);
 	if (ret) {
 		return ret;
 	}
 
-	ret = adxl345_reg_write_byte(dev, ADXL345_INT_ENABLE, int1);
+	printk("gpio_is_ready_dt(&cfg->interrupt2): %d\n", gpio_is_ready_dt(&cfg->interrupt2));
+	printk("selected_int2: %d\n", selected_int2);
+
+	if (gpio_is_ready_dt(&cfg->interrupt2) && selected_int2) {
+		int_map |= int1;
+	} else if (gpio_is_ready_dt(&cfg->interrupt) && !selected_int2) {
+		int_map &= ~int1;
+	}
+
+	ret = adxl345_reg_write_byte(dev, ADXL345_INT_MAP, int_map);
 	if (ret) {
 		return ret;
 	}
 
-	uint8_t samples;
+	ret = adxl345_reg_write_mask(dev, ADXL345_INT_ENABLE, int1, int1);
+	if (ret) {
+		return ret;
+	}
 
-	ret = adxl345_reg_read_byte(dev, ADXL345_INT_MAP, &samples);
-	ret = adxl345_reg_read_byte(dev, ADXL345_INT_ENABLE, &samples);
-#ifdef CONFIG_ADXL345_TRIGGER
-	gpio_pin_interrupt_configure_dt(&cfg->interrupt,
-					      GPIO_INT_EDGE_TO_ACTIVE);
-#endif
+	/* Clear status and read sample-set to clear interrupt flag */
+	(void)adxl345_read_sample(dev, &sample);
+
+	ret = adxl345_reg_read_byte(dev, ADXL345_FIFO_STATUS_REG, &samples_count);
+	if (ret < 0) {
+		LOG_ERR("Failed to read FIFO status rc = %d\n", ret);
+		return ret;
+	}
+
+	if (gpio_is_ready_dt(&cfg->interrupt2) && selected_int2) {
+		gpio_pin_interrupt_configure_dt(&cfg->interrupt2,
+						GPIO_INT_EDGE_TO_ACTIVE);
+	} else if (gpio_is_ready_dt(&cfg->interrupt) && !selected_int2) {
+		gpio_pin_interrupt_configure_dt(&cfg->interrupt,
+						GPIO_INT_EDGE_TO_ACTIVE);
+	}
+
 	return 0;
 }
-#endif
+#endif /* CONFIG_ADXL345_TRIGGER */
 
 static int adxl345_init(const struct device *dev)
 {
@@ -503,14 +528,6 @@ static int adxl345_init(const struct device *dev)
 	if (rc) {
 		return rc;
 	}
-	rc = adxl345_interrupt_config(dev, ADXL345_INT_MAP_WATERMARK_MSK);
-	if (rc) {
-		return rc;
-	}
-	rc = adxl345_interrupt_config(dev, ADXL345_INT_MAP_ACT_MSK);
-	if (rc) {
-		return rc;
-	}
 #endif
 
 	rc = adxl345_reg_read_byte(dev, ADXL345_DATA_FORMAT_REG, &full_res);
@@ -550,18 +567,26 @@ static int adxl345_pm_action(const struct device *dev,
 
 #ifdef CONFIG_ADXL345_TRIGGER
 
-#define ADXL345_CFG_IRQ(inst)									   \
-	COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, int1_gpios),					   \
-		(										   \
-			.interrupt = GPIO_DT_SPEC_INST_GET(inst, int1_gpios),			   \
-			.route_to_int2 = false,							   \
-		),										   \
-		(										   \
-			.interrupt = GPIO_DT_SPEC_INST_GET(inst, int2_gpios),			   \
-			.route_to_int2 = true,							   \
-		))
+#define ANYM_ON_INT1(inst) \
+	DT_INST_PROP(inst, anym_on_int1)
+
+#define GPIO_DT_SPEC_INST_GET_BY_COND(id, prop)		\
+	COND_CODE_1(DT_INST_NODE_HAS_PROP(id, prop),		\
+		    (GPIO_DT_SPEC_INST_GET(id, prop)),	\
+		    ({.port = NULL, .pin = 0, .dt_flags = 0}))
+
+#define ADXL345_CFG_IRQ(inst)                                     \
+	.interrupt =							\
+	    COND_CODE_1(ANYM_ON_INT1(inst),		\
+		({.port = NULL, .pin = 0, .dt_flags = 0}),                  \
+		(GPIO_DT_SPEC_INST_GET_BY_COND(inst, int1_gpios))),	\
+	.interrupt2 =								\
+	    COND_CODE_1(ANYM_ON_INT1(inst),		\
+		(GPIO_DT_SPEC_INST_GET_BY_COND(inst, int1_gpios)),	\
+		(GPIO_DT_SPEC_INST_GET_BY_COND(inst, int2_gpios)))
 
 #else
+#define ANYM_ON_INT1(inst)
 #define ADXL345_CFG_IRQ(inst)
 #endif /* CONFIG_ADXL345_TRIGGER */
 
@@ -613,6 +638,7 @@ static int adxl345_pm_action(const struct device *dev,
 		.reg_access = adxl345_reg_access_spi,						   \
 		.bus_type = ADXL345_BUS_SPI,							   \
 		ADXL345_CONFIG(inst)								   \
+		.anym_on_int1 = ANYM_ON_INT1(inst),							\
 		COND_CODE_1(UTIL_OR(DT_INST_NODE_HAS_PROP(inst, int1_gpios),			   \
 				    DT_INST_NODE_HAS_PROP(inst, int2_gpios)),			   \
 		(ADXL345_CFG_IRQ(inst)), ())							   \
@@ -625,6 +651,7 @@ static int adxl345_pm_action(const struct device *dev,
 		.reg_access = adxl345_reg_access_i2c,						   \
 		.bus_type = ADXL345_BUS_I2C,							   \
 		ADXL345_CONFIG(inst)								   \
+		.anym_on_int1 = ANYM_ON_INT1(inst),							\
 		COND_CODE_1(UTIL_OR(DT_INST_NODE_HAS_PROP(inst, int1_gpios),			   \
 				    DT_INST_NODE_HAS_PROP(inst, int2_gpios)),			   \
 		(ADXL345_CFG_IRQ(inst)), ())							   \

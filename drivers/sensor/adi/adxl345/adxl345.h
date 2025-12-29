@@ -127,6 +127,11 @@
 #define ADXL345_BUS_I2C 0
 #define ADXL345_BUS_SPI 1
 
+#define ADXL345_SELECT_INT1	0
+#define ADXL345_SELECT_INT2	1
+#define ADXL345_TRIGGED_INT1	4
+#define ADXL345_TRIGGED_INT2	5
+
 enum adxl345_odr {
 	ADXL345_ODR_12_5HZ = ADXL345_DT_ODR_12_5,
 	ADXL345_ODR_25HZ = ADXL345_DT_ODR_25,
@@ -172,7 +177,7 @@ struct adxl345_dev_data {
 	enum adxl345_op_mode op_mode;
 #ifdef CONFIG_ADXL345_TRIGGER
 	struct gpio_callback gpio_cb;
-
+	struct gpio_callback gpio2_cb;
 	sensor_trigger_handler_t th_handler;
 	const struct sensor_trigger *th_trigger;
 	sensor_trigger_handler_t drdy_handler;
@@ -248,8 +253,9 @@ struct adxl345_dev_config {
 	struct adxl345_fifo_config fifo_config;
 	uint8_t bus_type;
 #ifdef CONFIG_ADXL345_TRIGGER
+	bool anym_on_int1;
 	struct gpio_dt_spec interrupt;
-	bool route_to_int2;
+	struct gpio_dt_spec interrupt2;
 #endif
 };
 
@@ -265,6 +271,8 @@ int adxl345_trigger_set(const struct device *dev,
 			sensor_trigger_handler_t handler);
 
 int adxl345_init_interrupt(const struct device *dev);
+int adxl345_interrupt_config(const struct device *dev,
+				    uint8_t int1, bool selected_int2);
 
 #endif /* CONFIG_ADXL345_TRIGGER */
 

@@ -17,6 +17,7 @@
 LOG_MODULE_DECLARE(ADXL345, CONFIG_SENSOR_LOG_LEVEL);
 
 #if defined(CONFIG_ADXL345_TRIGGER_OWN_THREAD) || defined(CONFIG_ADXL345_TRIGGER_GLOBAL_THREAD)
+/* FIXME: Fix this shit */
 static void adxl345_thread_cb(const struct device *dev)
 {
 	const struct adxl345_dev_config *cfg = dev->config;
@@ -39,7 +40,7 @@ static void adxl345_thread_cb(const struct device *dev)
 		drv_data->act_handler(dev, drv_data->act_trigger);
 	}
 
-	ret = gpio_pin_interrupt_configure_dt(&cfg->interrupt,
+	ret = gpio_pin_interrupt_configure_dt(&cfg->interrupt2,
 					      GPIO_INT_EDGE_TO_ACTIVE);
 	__ASSERT(ret == 0, "Interrupt configuration failed");
 }
@@ -57,6 +58,22 @@ static void adxl345_gpio_callback(const struct device *dev,
 	if (IS_ENABLED(CONFIG_ADXL345_STREAM)) {
 		adxl345_stream_irq_handler(drv_data->dev);
 	}
+
+#if defined(CONFIG_ADXL345_TRIGGER_OWN_THREAD)
+	k_sem_give(&drv_data->gpio_sem);
+#elif defined(CONFIG_ADXL345_TRIGGER_GLOBAL_THREAD)
+	k_work_submit(&drv_data->work);
+#endif
+}
+
+static void adxl345_gpio2_callback(const struct device *dev,
+				  struct gpio_callback *cb, uint32_t pins)
+{
+	struct adxl345_dev_data *drv_data =
+		CONTAINER_OF(cb, struct adxl345_dev_data, gpio2_cb);
+	const struct adxl345_dev_config *cfg = drv_data->dev->config;
+
+	gpio_pin_interrupt_configure_dt(&cfg->interrupt2, GPIO_INT_DISABLE);
 
 #if defined(CONFIG_ADXL345_TRIGGER_OWN_THREAD)
 	k_sem_give(&drv_data->gpio_sem);
@@ -89,90 +106,88 @@ static void adxl345_work_cb(struct k_work *work)
 }
 #endif
 
-int adxl345_trigger_set(const struct device *dev,
+static int adxl345_trigger_drdy_set(const struct device *dev,
 			const struct sensor_trigger *trig,
 			sensor_trigger_handler_t handler)
 {
 	const struct adxl345_dev_config *cfg = dev->config;
 	struct adxl345_dev_data *drv_data = dev->data;
-	struct adxl345_sample sample;
-	uint8_t int_mask, int_en;
-	uint8_t samples_count;
 	int ret;
 
-	ret = gpio_pin_interrupt_configure_dt(&cfg->interrupt,
-					      GPIO_INT_DISABLE);
+	if (cfg->interrupt.port == NULL) {
+		LOG_ERR("interrupt is not supported");
+		return -ENOTSUP;
+	}
+
+	gpio_pin_interrupt_configure_dt(&cfg->interrupt, GPIO_INT_DISABLE);
+
+	drv_data->drdy_handler = handler;
+	drv_data->drdy_trigger = trig;
+
+	ret = adxl345_interrupt_config(dev, ADXL345_INT_MAP_DATA_RDY_MSK, ADXL345_SELECT_INT1);
 	if (ret < 0) {
 		return ret;
 	}
 
-	switch (trig->type) {
-	case SENSOR_TRIG_DATA_READY:
-		drv_data->drdy_handler = handler;
-		drv_data->drdy_trigger = trig;
-		/** Enabling DRDY means not using Watermark interrupt as both
-		 * are served by reading data-register: two clients can't be
-		 * served simultaneously.
-		 */
-		int_mask = ADXL345_INT_MAP_DATA_RDY_MSK |
-			   ADXL345_INT_MAP_OVERRUN_MSK |
-			   ADXL345_INT_MAP_WATERMARK_MSK;
-		break;
-	case SENSOR_TRIG_MOTION:
-		drv_data->act_handler = handler;
-		drv_data->act_trigger = trig;
-		int_mask = ADXL345_INT_MAP_ACT_MSK;
-		ret = adxl345_reg_write_byte(dev, ADXL345_ACT_INACT_CTL_REG,
-					ADXL345_ACT_AC_DC | ADXL345_ACT_X_EN |
-					ADXL345_ACT_Y_EN | ADXL345_ACT_Z_EN);
-		if (ret < 0) {
-			return ret;
-		}
-		break;
-	default:
-		LOG_ERR("Unsupported sensor trigger");
+	return 0;
+}
+
+static int adxl345_trigger_anym_set(const struct device *dev,
+			const struct sensor_trigger *trig,
+			sensor_trigger_handler_t handler)
+{
+	const struct adxl345_dev_config *cfg = dev->config;
+	struct adxl345_dev_data *drv_data = dev->data;
+	int ret;
+
+	if (cfg->interrupt2.port == NULL) {
+		LOG_ERR("interrupt2 is not supported");
 		return -ENOTSUP;
 	}
 
-	if (handler) {
-		int_en = ADXL345_INT_MAP_DATA_RDY_MSK;
-	} else {
-		int_en = 0U;
+	gpio_pin_interrupt_configure_dt(&cfg->interrupt2, GPIO_INT_DISABLE);
+
+	drv_data->act_handler = handler;
+	drv_data->act_trigger = trig;
+
+	/* TODO: Remove this after testing */
+	adxl345_reg_write_byte(dev, ADXL345_THRESH_ACT_REG, 36);
+
+	ret = adxl345_reg_write_byte(dev, ADXL345_ACT_INACT_CTL_REG,
+				ADXL345_ACT_AC_DC | ADXL345_ACT_X_EN |
+				ADXL345_ACT_Y_EN | ADXL345_ACT_Z_EN);
+	if (ret < 0) {
+		return ret;
+	}
+
+	ret = adxl345_interrupt_config(dev, ADXL345_INT_MAP_ACT_MSK, ADXL345_SELECT_INT2);
+	if (ret < 0) {
+		return ret;
+	}
+
+	return 0;
+}
+
+int adxl345_trigger_set(const struct device *dev,
+			const struct sensor_trigger *trig,
+			sensor_trigger_handler_t handler)
+{
+	if(trig == NULL || handler == NULL) {
+		return -EINVAL;
 	}
 
 #ifdef CONFIG_ADXL345_STREAM
 	(void)adxl345_configure_fifo(dev, ADXL345_FIFO_BYPASSED, ADXL345_INT2, 0);
 #endif
 
-	ret = adxl345_reg_write_mask(dev, ADXL345_INT_ENABLE, int_mask, 0);
-	if (ret < 0) {
-		return ret;
-	}
-
-	ret = adxl345_reg_write_mask(dev, ADXL345_INT_MAP, int_mask,
-				     cfg->route_to_int2 ? int_en : ~int_en);
-	if (ret < 0) {
-		return ret;
-	}
-
-	/* Clear status and read sample-set to clear interrupt flag */
-	(void)adxl345_read_sample(dev, &sample);
-
-	ret = adxl345_reg_read_byte(dev, ADXL345_FIFO_STATUS_REG, &samples_count);
-	if (ret < 0) {
-		LOG_ERR("Failed to read FIFO status rc = %d\n", ret);
-		return ret;
-	}
-
-	ret = gpio_pin_interrupt_configure_dt(&cfg->interrupt,
-					      GPIO_INT_EDGE_TO_ACTIVE);
-	if (ret < 0) {
-		return ret;
-	}
-
-	ret = adxl345_reg_write_mask(dev, ADXL345_INT_ENABLE, int_mask, int_en);
-	if (ret < 0) {
-		return ret;
+	switch (trig->type) {
+	case SENSOR_TRIG_DATA_READY:
+		return adxl345_trigger_drdy_set(dev, trig, handler);
+	case SENSOR_TRIG_MOTION:
+		return adxl345_trigger_anym_set(dev, trig, handler);
+	default:
+		LOG_ERR("Unsupported sensor trigger");
+		return -ENOTSUP;
 	}
 
 	return 0;
@@ -184,9 +199,37 @@ int adxl345_init_interrupt(const struct device *dev)
 	struct adxl345_dev_data *drv_data = dev->data;
 	int ret;
 
+	drv_data->dev = dev;
+
+#if defined(CONFIG_ADXL345_TRIGGER_OWN_THREAD)
+	k_sem_init(&drv_data->gpio_sem, 0, K_SEM_MAX_LIMIT);
+
+	k_thread_create(&drv_data->thread, drv_data->thread_stack,
+			CONFIG_ADXL345_THREAD_STACK_SIZE,
+			adxl345_thread, drv_data,
+			NULL, NULL, K_PRIO_COOP(CONFIG_ADXL345_THREAD_PRIORITY),
+			0, K_NO_WAIT);
+
+	k_thread_name_set(&drv_data->thread, dev->name);
+#elif defined(CONFIG_ADXL345_TRIGGER_GLOBAL_THREAD)
+	drv_data->work.handler = adxl345_work_cb;
+#endif
+
+	/* Disable interrupts upon reset */
+	ret = adxl345_reg_write_byte(dev, ADXL345_INT_ENABLE, 0);
+	if (ret < 0) {
+		return ret;
+	}
+
 	if (!gpio_is_ready_dt(&cfg->interrupt)) {
-		LOG_ERR("GPIO port %s not ready", cfg->interrupt.port->name);
-		return -EINVAL;
+		/* API may return false even when ptr is NULL */
+		if (cfg->interrupt.port != NULL) {
+			LOG_ERR("device %s is not ready", cfg->interrupt.port->name);
+			return -ENODEV;
+		}
+
+		LOG_DBG("interrupt not defined in DT");
+		goto check_interrupt2;
 	}
 
 	ret = gpio_pin_configure_dt(&cfg->interrupt, GPIO_INPUT);
@@ -204,21 +247,43 @@ int adxl345_init_interrupt(const struct device *dev)
 		return ret;
 	}
 
-	drv_data->dev = dev;
+	LOG_INF("%s: int1 on %s.%02u", dev->name,
+					cfg->interrupt.port->name,
+					cfg->interrupt.pin);
 
-#if defined(CONFIG_ADXL345_TRIGGER_OWN_THREAD)
-	k_sem_init(&drv_data->gpio_sem, 0, K_SEM_MAX_LIMIT);
+check_interrupt2:
+	if (!gpio_is_ready_dt(&cfg->interrupt2)) {
+		/* API may return false even when ptr is NULL */
+		if (cfg->interrupt2.port != NULL) {
+			LOG_ERR("device %s is not ready", cfg->interrupt2.port->name);
+			return -ENODEV;
+		}
 
-	k_thread_create(&drv_data->thread, drv_data->thread_stack,
-			CONFIG_ADXL345_THREAD_STACK_SIZE,
-			adxl345_thread, drv_data,
-			NULL, NULL, K_PRIO_COOP(CONFIG_ADXL345_THREAD_PRIORITY),
-			0, K_NO_WAIT);
+		LOG_DBG("interrupt2 not defined in DT");
+		return 0;
+	}
 
-	k_thread_name_set(&drv_data->thread, dev->name);
-#elif defined(CONFIG_ADXL345_TRIGGER_GLOBAL_THREAD)
-	drv_data->work.handler = adxl345_work_cb;
-#endif
+	/* any motion int2 gpio configuration */
+	ret = gpio_pin_configure_dt(&cfg->interrupt2, GPIO_INPUT);
+	if (ret < 0) {
+		LOG_ERR("Could not configure %s.%02u",
+			cfg->interrupt2.port->name, cfg->interrupt2.pin);
+		return ret;
+	}
+
+	gpio_init_callback(&drv_data->gpio2_cb,
+			   adxl345_gpio2_callback,
+			   BIT(cfg->interrupt2.pin));
+
+	ret = gpio_add_callback(cfg->interrupt2.port, &drv_data->gpio2_cb);
+	if (ret < 0) {
+		LOG_ERR("Could not add gpio int2 callback (%d)", ret);
+		return ret;
+	}
+
+	LOG_INF("%s: int2 on %s.%02u", dev->name,
+	   cfg->interrupt2.port->name,
+	   cfg->interrupt2.pin);
 
 	return 0;
 }

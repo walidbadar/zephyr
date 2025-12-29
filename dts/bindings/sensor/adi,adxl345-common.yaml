@@ -52,3 +52,10 @@ properties:
       The INT2 signal defaults to active high as produced by the
       sensor.  The property value should ensure the flags properly
       describe the signal that is presented to the driver.
+
+  anym-on-int1:
+    type: boolean
+    description: |
+      Indicates that the device driver should use interrupt 1
+      for any movement. This is for boards that only have one
+      interrupt line connected from the sensor to the processor.
