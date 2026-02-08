@@ -4,11 +4,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/dt-bindings/pinctrl/bcm2711-pinctrl.h>
-
 #include "../common/rpi-pinctrl-common.dtsi"
 
 &pinctrl {
+	uart0_bt_hci: uart0-bt-hci {
+		group1 {
+			pinmux = <UART0_CTS_GPIO30>,
+				 <UART0_RTS_GPIO31>,
+				 <UART0_TX_GPIO32>,
+				 <UART0_RX_GPIO33>;
+		};
+	};
+
 	uart2_gpio0: uart2-gpio0 {
 		group1 {
 			pinmux = <UART2_TX_GPIO0>,

@@ -1,0 +1,18 @@
+# Copyright (c) 2026 Muhammad Waleed Badar
+# SPDX-License-Identifier: Apache-2.0
+
+if BOARD_RPI_4B
+
+if BT
+
+choice AIROC_PART
+	default CYW4343W
+endchoice
+
+choice CYW4343W_MODULE
+	default CYW4343W_MURATA_1DX
+endchoice
+
+endif # BT
+
+endif # BOARD_RPI_4B
