@@ -43,6 +43,12 @@
 			clock-frequency = <DT_FREQ_M(48)>;
 			#clock-cells = <0>;
 		};
+
+		clk_usb: clk-usb {
+			compatible = "fixed-clock";
+			clock-frequency = <DT_FREQ_M(480)>;
+			#clock-cells = <0>;
+		};
 	};
 
 	soc {
@@ -156,5 +162,25 @@
 			clocks = <&clk_uart>;
 			status = "disabled";
 		};
+
+		usb: usb@fe980000 {
+			compatible = "snps,dwc2";
+			reg = <0xfe980000 0x10000>;
+			interrupts = <GIC_SPI 73 IRQ_TYPE_LEVEL
+				      IRQ_DEFAULT_PRIORITY>;
+			num-out-eps = <8>;
+			num-in-eps = <8>;
+			ghwcfg1 = <0x00000000>;
+			ghwcfg2 = <0x228ddd50>;
+			ghwcfg4 = <0x1ff00020>;
+			clocks = <&clk_usb>;
+			phys = <&usbphy>;
+			status = "disabled";
+		};
+	};
+
+	usbphy: phy {
+		compatible = "usb-nop-xceiv";
+		#phy-cells = <0>;
 	};
 };
