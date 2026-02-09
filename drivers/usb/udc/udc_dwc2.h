@@ -10,6 +10,8 @@
 #include <stdint.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/usb/udc.h>
+#include <zephyr/sys/device_mmio.h>
+#include <zephyr/sys/barrier.h>
 #include <usb_dwc2_hw.h>
 
 /* Vendor quirks per driver instance */
@@ -38,11 +40,11 @@ struct dwc2_vendor_quirks {
 
 /* Driver configuration per instance */
 struct udc_dwc2_config {
+	DEVICE_MMIO_ROM;
 	size_t num_in_eps;
 	size_t num_out_eps;
 	struct udc_ep_config *ep_cfg_in;
 	struct udc_ep_config *ep_cfg_out;
-	struct usb_dwc2_reg *const base;
 	/* Pointer to pin control configuration or NULL */
 	struct pinctrl_dev_config *const pcfg;
 	/* Pointer to vendor quirks or NULL */
@@ -54,6 +56,11 @@ struct udc_dwc2_config {
 	uint32_t ghwcfg2;
 	uint32_t ghwcfg4;
 };
+
+static inline struct usb_dwc2_reg *dwc2_get_base(const struct device *dev)
+{
+	return (struct usb_dwc2_reg *)DEVICE_MMIO_GET(dev);
+}
 
 #include "udc_dwc2_vendor_quirks.h"
 
