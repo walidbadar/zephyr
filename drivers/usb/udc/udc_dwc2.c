@@ -7,7 +7,6 @@
 #define DT_DRV_COMPAT snps_dwc2
 
 #include "udc_common.h"
-#include "udc_dwc2.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -22,8 +21,9 @@
 #include <zephyr/usb/usb_ch9.h>
 #include <usb_dwc2_hw.h>
 
-#include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(udc_dwc2, CONFIG_UDC_DRIVER_LOG_LEVEL);
+/* Required by DEVICE_MMIO_NAMED_* macros */
+#define DEV_CFG(_dev) ((const struct udc_dwc2_config *)(_dev)->config)
+#define DEV_DATA(_dev) ((struct udc_dwc2_data *)(udc_get_private(_dev)))
 
 enum dwc2_drv_event_type {
 	/* USB connection speed determined after bus reset */
@@ -105,6 +105,7 @@ struct dwc2_reg_backup {
 
 /* Driver private data per instance */
 struct udc_dwc2_data {
+	DEVICE_MMIO_NAMED_RAM(core);
 	struct k_spinlock lock;
 	struct k_thread thread_data;
 	/* Main events the driver thread waits for */
@@ -155,6 +156,10 @@ struct udc_dwc2_data {
 	uint8_t setup[8];
 };
 
+#include "udc_dwc2.h"
+#include <zephyr/logging/log.h>
+LOG_MODULE_REGISTER(udc_dwc2, CONFIG_UDC_DRIVER_LOG_LEVEL);
+
 static void udc_dwc2_ep_disable(const struct device *dev,
 				struct udc_ep_config *const cfg,
 				bool stall, bool wait);
@@ -190,13 +195,6 @@ static int dwc2_init_pinctrl(const struct device *dev)
 	return 0;
 }
 #endif
-
-static inline struct usb_dwc2_reg *dwc2_get_base(const struct device *dev)
-{
-	const struct udc_dwc2_config *const config = dev->config;
-
-	return config->base;
-}
 
 static void dwc2_wait_for_bit(const struct device *dev,
 			      mem_addr_t addr, uint32_t bit)
@@ -1068,8 +1066,7 @@ static int dwc2_handle_evt_din(const struct device *dev,
 
 static void dwc2_backup_registers(const struct device *dev)
 {
-	const struct udc_dwc2_config *const config = dev->config;
-	struct usb_dwc2_reg *const base = config->base;
+	struct usb_dwc2_reg *const base = dwc2_get_base(dev);
 	struct udc_dwc2_data *const priv = udc_get_private(dev);
 	struct dwc2_reg_backup *backup = &priv->backup;
 
@@ -1125,8 +1122,7 @@ static void dwc2_backup_registers(const struct device *dev)
 static void dwc2_restore_essential_registers(const struct device *dev,
 					     bool rwup, bool bus_reset)
 {
-	const struct udc_dwc2_config *const config = dev->config;
-	struct usb_dwc2_reg *const base = config->base;
+	struct usb_dwc2_reg *const base = dwc2_get_base(dev);
 	struct udc_dwc2_data *const priv = udc_get_private(dev);
 	struct dwc2_reg_backup *backup = &priv->backup;
 	uint32_t pcgcctl = backup->pcgcctl & USB_DWC2_PCGCCTL_RESTOREVALUE_MASK;
@@ -1180,8 +1176,7 @@ static void dwc2_restore_essential_registers(const struct device *dev,
 
 static void dwc2_restore_device_registers(const struct device *dev, bool rwup)
 {
-	const struct udc_dwc2_config *const config = dev->config;
-	struct usb_dwc2_reg *const base = config->base;
+	struct usb_dwc2_reg *const base = dwc2_get_base(dev);
 	struct udc_dwc2_data *const priv = udc_get_private(dev);
 	struct dwc2_reg_backup *backup = &priv->backup;
 
@@ -1224,8 +1219,7 @@ static void dwc2_restore_device_registers(const struct device *dev, bool rwup)
 
 static void dwc2_enter_hibernation(const struct device *dev)
 {
-	const struct udc_dwc2_config *const config = dev->config;
-	struct usb_dwc2_reg *const base = config->base;
+	struct usb_dwc2_reg *const base = dwc2_get_base(dev);
 	struct udc_dwc2_data *const priv = udc_get_private(dev);
 	mem_addr_t gpwrdn_reg = (mem_addr_t)&base->gpwrdn;
 	mem_addr_t pcgcctl_reg = (mem_addr_t)&base->pcgcctl;
@@ -1272,8 +1266,7 @@ static void dwc2_enter_hibernation(const struct device *dev)
 static void dwc2_exit_hibernation(const struct device *dev,
 				  bool rwup, bool bus_reset)
 {
-	const struct udc_dwc2_config *const config = dev->config;
-	struct usb_dwc2_reg *const base = config->base;
+	struct usb_dwc2_reg *const base = dwc2_get_base(dev);
 	struct udc_dwc2_data *const priv = udc_get_private(dev);
 	mem_addr_t gpwrdn_reg = (mem_addr_t)&base->gpwrdn;
 	mem_addr_t pcgcctl_reg = (mem_addr_t)&base->pcgcctl;
@@ -2013,9 +2006,8 @@ static int dwc2_core_soft_reset(const struct device *dev)
 
 static int udc_dwc2_init_controller(const struct device *dev)
 {
-	const struct udc_dwc2_config *const config = dev->config;
 	struct udc_dwc2_data *const priv = udc_get_private(dev);
-	struct usb_dwc2_reg *const base = config->base;
+	struct usb_dwc2_reg *const base = dwc2_get_base(dev);
 	mem_addr_t grxfsiz_reg = (mem_addr_t)&base->grxfsiz;
 	mem_addr_t gahbcfg_reg = (mem_addr_t)&base->gahbcfg;
 	mem_addr_t gusbcfg_reg = (mem_addr_t)&base->gusbcfg;
@@ -2390,6 +2382,8 @@ static int udc_dwc2_disable(const struct device *dev)
 static int udc_dwc2_init(const struct device *dev)
 {
 	int ret;
+
+	DEVICE_MMIO_NAMED_MAP(dev, core, K_MEM_CACHE_NONE);
 
 	ret = dwc2_quirk_init(dev);
 	if (ret) {
@@ -2964,8 +2958,7 @@ static inline void dwc2_handle_oepint(const struct device *dev)
  */
 static void dwc2_handle_incompisoin(const struct device *dev)
 {
-	const struct udc_dwc2_config *const config = dev->config;
-	struct usb_dwc2_reg *const base = config->base;
+	struct usb_dwc2_reg *const base = dwc2_get_base(dev);
 	struct udc_dwc2_data *const priv = udc_get_private(dev);
 	mem_addr_t gintsts_reg = (mem_addr_t)&base->gintsts;
 	const uint32_t mask =
@@ -3013,8 +3006,7 @@ static void dwc2_handle_incompisoin(const struct device *dev)
  */
 static void dwc2_handle_incompisoout(const struct device *dev)
 {
-	const struct udc_dwc2_config *const config = dev->config;
-	struct usb_dwc2_reg *const base = config->base;
+	struct usb_dwc2_reg *const base = dwc2_get_base(dev);
 	struct udc_dwc2_data *const priv = udc_get_private(dev);
 	mem_addr_t gintsts_reg = (mem_addr_t)&base->gintsts;
 	const uint32_t mask =
@@ -3059,8 +3051,7 @@ static void dwc2_handle_incompisoout(const struct device *dev)
 
 static void dwc2_handle_goutnakeff(const struct device *dev)
 {
-	const struct udc_dwc2_config *const config = dev->config;
-	struct usb_dwc2_reg *const base = config->base;
+	struct usb_dwc2_reg *const base = dwc2_get_base(dev);
 	struct udc_dwc2_data *const priv = udc_get_private(dev);
 	k_spinlock_key_t key;
 	mem_addr_t doepctl_reg;
@@ -3127,8 +3118,7 @@ static void dwc2_handle_goutnakeff(const struct device *dev)
 
 static void udc_dwc2_isr_handler(const struct device *dev)
 {
-	const struct udc_dwc2_config *const config = dev->config;
-	struct usb_dwc2_reg *const base = config->base;
+	struct usb_dwc2_reg *const base = dwc2_get_base(dev);
 	struct udc_dwc2_data *const priv = udc_get_private(dev);
 	mem_addr_t gintsts_reg = (mem_addr_t)&base->gintsts;
 	uint32_t int_status;
@@ -3489,8 +3479,9 @@ static const struct udc_api udc_dwc2_api = {
 };
 
 #define UDC_DWC2_DT_INST_REG_ADDR(n)						\
-	COND_CODE_1(DT_NUM_REGS(DT_DRV_INST(n)), (DT_INST_REG_ADDR(n)),		\
-		    (DT_INST_REG_ADDR_BY_NAME(n, core)))
+	COND_CODE_1(DT_NUM_REGS(DT_DRV_INST(n)),				\
+		(DEVICE_MMIO_NAMED_ROM_INIT(core, DT_DRV_INST(n))),		\
+		(DEVICE_MMIO_NAMED_ROM_INIT_BY_NAME(core, DT_DRV_INST(n))))
 
 #if !defined(UDC_DWC2_IRQ_DT_INST_DEFINE)
 #define UDC_DWC2_IRQ_FLAGS_TYPE0(n)	0
@@ -3561,12 +3552,12 @@ static const struct udc_api udc_dwc2_api = {
 	static struct udc_ep_config ep_cfg_in[DT_INST_PROP(n, num_in_eps)];	\
 										\
 	static const struct udc_dwc2_config udc_dwc2_config_##n = {		\
+		UDC_DWC2_DT_INST_REG_ADDR(n),					\
 		.num_out_eps = DT_INST_PROP(n, num_out_eps),			\
 		.num_in_eps = DT_INST_PROP(n, num_in_eps),			\
 		.ep_cfg_in = ep_cfg_in,						\
 		.ep_cfg_out = ep_cfg_out,					\
 		.make_thread = udc_dwc2_make_thread_##n,			\
-		.base = (struct usb_dwc2_reg *)UDC_DWC2_DT_INST_REG_ADDR(n),	\
 		.pcfg = UDC_DWC2_PINCTRL_DT_INST_DEV_CONFIG_GET(n),		\
 		.irq_enable_func = udc_dwc2_irq_enable_func_##n,		\
 		.irq_disable_func = udc_dwc2_irq_disable_func_##n,		\
