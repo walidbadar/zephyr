@@ -20,6 +20,9 @@
 			device_type = "cpu";
 			compatible = "arm,cortex-a72";
 			reg = <0>;
+			clock-frequency = <DT_FREQ_M(1500)>;
+			i-cache-line-size = <64>;
+			d-cache-line-size = <64>;
 		};
 	};
 
@@ -41,12 +44,6 @@
 		clk_uart: clk-uart {
 			compatible = "fixed-clock";
 			clock-frequency = <DT_FREQ_M(48)>;
-			#clock-cells = <0>;
-		};
-
-		clk_usb: clk-usb {
-			compatible = "fixed-clock";
-			clock-frequency = <DT_FREQ_M(480)>;
 			#clock-cells = <0>;
 		};
 	};
@@ -173,14 +170,7 @@
 			ghwcfg1 = <0x00000000>;
 			ghwcfg2 = <0x228ddd50>;
 			ghwcfg4 = <0x1ff00020>;
-			clocks = <&clk_usb>;
-			phys = <&usbphy>;
 			status = "disabled";
 		};
-	};
-
-	usbphy: phy {
-		compatible = "usb-nop-xceiv";
-		#phy-cells = <0>;
 	};
 };
