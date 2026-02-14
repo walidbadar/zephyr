@@ -1,0 +1,8 @@
+# Copyright (c) 2026 VIEWE Technology Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+
+description: Chipone CO5300 display controller on SPI bus
+
+compatible: "chipone,co5300"
+
+include: ["spi-device.yaml", "lcd-controller.yaml", "chipone,co5300-common.yaml"]
