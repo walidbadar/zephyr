@@ -192,6 +192,36 @@ static int dwc2_init_pinctrl(const struct device *dev)
 }
 #endif
 
+static int dwc2_wait_for_bit_set(mem_addr_t reg,
+			      uint32_t bit_mask, uint32_t timeout_us)
+{
+	uint32_t cnt = 0UL;
+
+	while (!(sys_read32(reg) & bit_mask)) {
+		k_busy_wait(1);
+		if (++cnt > timeout_us) {
+			return -ETIMEDOUT;
+		}
+	}
+
+	return 0;
+}
+
+static int dwc2_wait_for_bit_clear(mem_addr_t reg,
+			      uint32_t bit_mask, uint32_t timeout_us)
+{
+	uint32_t cnt = 0UL;
+
+	while (sys_read32(reg) & bit_mask) {
+		k_busy_wait(1);
+		if (++cnt > timeout_us) {
+			return -ETIMEDOUT;
+		}
+	}
+
+	return 0;
+}
+
 static void dwc2_wait_for_bit(const struct device *dev,
 			      mem_addr_t addr, uint32_t bit)
 {
@@ -1960,42 +1990,60 @@ static int dwc2_core_soft_reset(const struct device *dev)
 {
 	struct usb_dwc2_reg *const base = dwc2_get_base(dev);
 	mem_addr_t grstctl_reg = (mem_addr_t)&base->grstctl;
-	const unsigned int csr_timeout_us = 10000UL;
-	uint32_t cnt = 0UL;
+	mem_addr_t gsnpsid_reg = (mem_addr_t)&base->gsnpsid;
+	const uint32_t csr_timeout_us = 10000UL;
+	int ret;
+
+	LOG_ERR("PCGCCTL = 0x%08x", sys_read32((mem_addr_t)&base->pcgcctl));
+	LOG_ERR("GUSBCFG = 0x%08x", sys_read32((mem_addr_t)&base->gusbcfg));
+	LOG_ERR("GINTSTS = 0x%08x", sys_read32((mem_addr_t)&base->gintsts));
+	LOG_ERR("DSTS    = 0x%08x", sys_read32((mem_addr_t)&base->dsts));
+	LOG_ERR("GOTGCTL = 0x%08x", sys_read32((mem_addr_t)&base->gotgctl));
 
 	/* Check AHB master idle state */
-	while (!(sys_read32(grstctl_reg) & USB_DWC2_GRSTCTL_AHBIDLE)) {
-		k_busy_wait(1);
-
-		if (++cnt > csr_timeout_us) {
-			LOG_ERR("Wait for AHB idle timeout, GRSTCTL 0x%08x",
-				sys_read32(grstctl_reg));
-			return -EIO;
-		}
+	ret = dwc2_wait_for_bit_set(grstctl_reg, USB_DWC2_GRSTCTL_AHBIDLE, csr_timeout_us);
+	if (ret < 0){
+		LOG_ERR("Wait for AHB idle timeout, GRSTCTL 0x%08x",
+			sys_read32(grstctl_reg));
+		return ret;
 	}
 
 	/* Apply Core Soft Reset */
-	sys_write32(USB_DWC2_GRSTCTL_CSFTRST, grstctl_reg);
+	sys_set_bits(grstctl_reg, USB_DWC2_GRSTCTL_CSFTRST);
 
-	cnt = 0UL;
-	do {
-		if (++cnt > csr_timeout_us) {
+	if (dwc2_quirk_is_phy_clk_off(dev)) {
+		/* Software reset won't finish without PHY clock */
+		return -EIO;
+	}
+
+	/*
+	 * Wait for soft reset completion. The mechanism differs by core revision:
+	 *
+	 * Pre-Rev-4.20A: Hardware clears GRSTCTL_CSFTRST automatically when reset is done.
+	 *                Poll until the bit goes low.
+	 *
+	 * Rev-4.20A+: Hardware sets GRSTCTL_CSFTRSTDONE when reset is done.
+	 *             Poll until the bit goes high.
+	 */
+	if (sys_read32(gsnpsid_reg) < USB_DWC2_GSNPSID_REV_4_20A) {
+		ret = dwc2_wait_for_bit_clear(grstctl_reg, USB_DWC2_GRSTCTL_CSFTRST,
+					      csr_timeout_us);
+		if (ret < 0) {
 			LOG_ERR("Wait for CSR done timeout, GRSTCTL 0x%08x",
 				sys_read32(grstctl_reg));
-			return -EIO;
+			return ret;
+		}
+	} else {
+		ret = dwc2_wait_for_bit_set(grstctl_reg, USB_DWC2_GRSTCTL_CSFTRSTDONE,
+					    csr_timeout_us);
+		if (ret < 0) {
+			LOG_ERR("Wait for CSR done timeout, GRSTCTL 0x%08x",
+				sys_read32(grstctl_reg));
+			return ret;
 		}
 
-		k_busy_wait(1);
-
-		if (dwc2_quirk_is_phy_clk_off(dev)) {
-			/* Software reset won't finish without PHY clock */
-			return -EIO;
-		}
-	} while (sys_read32(grstctl_reg) & USB_DWC2_GRSTCTL_CSFTRST &&
-		 !(sys_read32(grstctl_reg) & USB_DWC2_GRSTCTL_CSFTRSTDONE));
-
-	/* CSFTRSTDONE is W1C so the write must have the bit set to clear it */
-	sys_clear_bits(grstctl_reg, USB_DWC2_GRSTCTL_CSFTRST);
+		sys_clear_bits(grstctl_reg, USB_DWC2_GRSTCTL_CSFTRST);
+	}
 
 	return 0;
 }
