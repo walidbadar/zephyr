@@ -1,0 +1,9 @@
+# Copyright (c) 2026 Muhammad Waleed Badar
+# SPDX-License-Identifier: Apache-2.0
+
+config SPI_BCM283X_AUX
+	bool "Broadcom BCM283x Auxiliary SPI controller driver"
+	default y
+	depends on DT_HAS_BRCM_BCM283X_AUX_SPI_ENABLED
+	help
+	  Enable Broadcom BCM283x Auxiliary SPI controller driver

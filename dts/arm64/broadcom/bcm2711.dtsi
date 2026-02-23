@@ -201,6 +201,28 @@
 			status = "disabled";
 		};
 
+		spi1: spi@fe215080 {
+			compatible = "brcm,bcm283x-aux-spi";
+			reg = <0xfe215080 0x40>;
+			interrupts = <GIC_SPI 93 IRQ_TYPE_LEVEL
+				      IRQ_DEFAULT_PRIORITY>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			clocks = <&clk_vpu>;
+			status = "disabled";
+		};
+
+		spi2: spi@fe2150c0 {
+			compatible = "brcm,bcm283x-aux-spi";
+			reg = <0xfe2150c0 0x40>;
+			interrupts = <GIC_SPI 93 IRQ_TYPE_LEVEL
+				      IRQ_DEFAULT_PRIORITY>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			clocks = <&clk_vpu>;
+			status = "disabled";
+		};
+
 		i2c0: i2c@fe205000 {
 			compatible = "brcm,bcm2711-i2c";
 			reg = <0xfe205000 0x200>;

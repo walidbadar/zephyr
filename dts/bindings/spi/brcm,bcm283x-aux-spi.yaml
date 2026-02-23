@@ -1,0 +1,12 @@
+description: Broadcom BCM283x Auxiliary SPI Controller
+
+compatible: "brcm,bcm283x-aux-spi"
+
+include: [spi-controller.yaml, pinctrl-device.yaml]
+
+properties:
+  reg:
+    required: true
+
+  clocks:
+    required: true
