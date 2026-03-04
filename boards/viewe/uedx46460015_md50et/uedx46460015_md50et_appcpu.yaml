@@ -1,0 +1,28 @@
+identifier: uedx46460015_md50et/esp32s3/appcpu
+name: VIEWE UEDX46460015_MD50ET APPCPU
+type: mcu
+arch: xtensa
+toolchain:
+  - zephyr
+supported:
+  - uart
+testing:
+  ignore_tags:
+    - net
+    - bluetooth
+    - flash
+    - cpp
+    - posix
+    - watchdog
+    - logging
+    - kernel
+    - pm
+    - gpio
+    - crypto
+    - eeprom
+    - heap
+    - cmsis_rtos
+    - jwt
+    - zdsp
+    - psa.secure_storage
+vendor: viewe

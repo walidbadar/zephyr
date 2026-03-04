@@ -1,0 +1,6 @@
+board:
+  name: uedx46460015_md50et
+  full_name: VIEWE UEDX46460015_MD50ET
+  vendor: viewe
+  socs:
+  - name: esp32s3

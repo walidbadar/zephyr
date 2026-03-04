@@ -1,0 +1,151 @@
+/*
+ * Copyright (c) 2024-2025 Espressif Systems (Shanghai) Co., Ltd.
+ * Copyright (c) 2026 VIEWE Technology Co., Ltd.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/dts-v1/;
+
+#include <zephyr/dt-bindings/display/panel.h>
+#include <zephyr/dt-bindings/mipi_dbi/mipi_dbi.h>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/dt-bindings/input/esp32-touch-sensor-input.h>
+#include <espressif/esp32s3/esp32s3_wroom_n16r8.dtsi>
+#include <espressif/partitions_0x0_amp_16M.dtsi>
+#include "uedx46460015_md50et-pinctrl.dtsi"
+
+/ {
+	model = "VIEWE UEDX46460015_MD50ET PROCPU";
+	compatible = "viewe,uedx46460015_md50et", "espressif,esp32s3";
+
+	chosen {
+		zephyr,sram = &sram1;
+		zephyr,console = &usb_serial;
+		zephyr,shell-uart = &usb_serial;
+		zephyr,flash = &flash0;
+		zephyr,code-partition = &slot0_partition;
+		zephyr,bt-hci = &esp32_bt_hci;
+		zephyr,display = &co5300;
+		zephyr,touch = &cst816s;
+	};
+
+	aliases {
+		sw0 = &encoder_button;
+		qdec0 = &encoder;
+		watchdog0 = &wdt0;
+	};
+
+	keys: keys {
+		compatible = "gpio-keys";
+		debounce-interval-ms = <10>;
+
+		encoder_button: encoder_button {
+			gpios = <&gpio0 0 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			zephyr,code = <INPUT_KEY_ENTER>;
+		};
+	};
+
+	encoder: encoder {
+		compatible = "gpio-qdec";
+		gpios = <&gpio0 6 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>,
+			<&gpio0 5 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+		zephyr,axis = <INPUT_REL_WHEEL>;
+		steps-per-period = <4>;
+		sample-time-us = <2000>;
+		idle-timeout-ms = <200>;
+	};
+
+	lvgl_pointer {
+		compatible = "zephyr,lvgl-pointer-input";
+		input = <&cst816s>;
+	};
+};
+
+&timer0 {
+	status = "disabled";
+};
+
+&timer1 {
+	status = "disabled";
+};
+
+&timer2 {
+	status = "disabled";
+};
+
+&timer3 {
+	status = "disabled";
+};
+
+&wdt0 {
+	status = "okay";
+};
+
+&trng0 {
+	status = "okay";
+};
+
+&gpio0 {
+	status = "okay";
+};
+
+&gpio1 {
+	status = "okay";
+};
+
+&uart0 {
+	status = "okay";
+	current-speed = <115200>;
+	pinctrl-0 = <&uart0_default>;
+	pinctrl-names = "default";
+};
+
+&i2c0 {
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_FAST>;
+	pinctrl-0 = <&i2c0_default>;
+	pinctrl-names = "default";
+
+	/* Hynitron CST816S Capacitive Touch Controller */
+	cst816s: cst816s@15 {
+		status = "okay";
+		compatible = "hynitron,cst816s";
+		reg = <0x15>;
+		irq-gpios = <&gpio0 4 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+		rst-gpios = <&gpio0 2 GPIO_ACTIVE_LOW>;
+	};
+};
+
+&spi2 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+	pinctrl-0 = <&spim2_default>;
+	pinctrl-names = "default";
+
+	co5300: co5300@0 {
+		compatible = "chipone,co5300";
+		status = "okay";
+		reg = <0x0>;
+		spi-max-frequency = <DT_FREQ_M(40)>;
+		// backlight-gpios = <&gpio0 17 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&gpio0 8 GPIO_ACTIVE_LOW>;
+		pixel-format = <PANEL_PIXEL_FORMAT_RGB_565>;
+		width = <466>;
+		height = <466>;
+		ext-ram = <&psram0>;
+	};
+};
+
+&usb_serial {
+	status = "okay";
+};
+
+&esp32_bt_hci {
+	status = "okay";
+};
+
+&wifi {
+	status = "okay";
+};

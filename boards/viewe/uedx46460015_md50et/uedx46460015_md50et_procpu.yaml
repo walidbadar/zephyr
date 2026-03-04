@@ -1,0 +1,19 @@
+identifier: uedx46460015_md50et/esp32s3/procpu
+name: VIEWE UEDX46460015_MD50ET PROCPU
+type: mcu
+arch: xtensa
+toolchain:
+  - zephyr
+supported:
+  - gpio
+  - uart
+  - i2c
+  - spi
+  - counter
+  - watchdog
+  - entropy
+  - pwm
+  - dma
+  - input
+  - display
+vendor: viewe
