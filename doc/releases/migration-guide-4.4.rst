@@ -631,6 +631,16 @@ Infineon
   * ``CONFIG_BT_CYW43XX`` → :kconfig:option:` CONFIG_BT_HCI_UART_INFINEON`
   * ``dtcompatible: "infineon,cyw43xxx-bt-hci"`` → ``dtcompatible: "infineon,bt-hci-uart"``
 
+Input
+=====
+
+* The CST816S input driver has been generalized to support the CST8xx
+  family. The ``drivers/input/input_cst816s.c`` driver is replaced by
+  ``drivers/input/input_cst8xx.c`` and ``drivers/input/Kconfig.cst816s`` is
+  replaced by ``drivers/input/Kconfig.cst8xx``. The Devicetree compatible
+  :dtcompatible:`hynitron,cst816s` is replaced by :dtcompatible:`hynitron,cst8xx`.
+  The dt-binding macro prefix was also updated from ``CST816S_*`` to ``CST8XX_*``.
+
 MDIO
 ====
 
