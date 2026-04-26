@@ -22,6 +22,7 @@
 	};
 
 	chosen {
+		zephyr,bt-hci = &bt_hci_uart;
 		zephyr,console = &uart1;
 		zephyr,shell-uart = &uart1;
 		zephyr,sram = &sram0;
@@ -40,6 +41,26 @@
 
 &gpio1 {
 	status = "okay";
+};
+
+&uart0 {
+	pinctrl-0 = <&uart0_ctsrts_gpio32>;
+	pinctrl-names = "default";
+	current-speed = <115200>;
+	hw-flow-control;
+	status = "okay";
+
+	bt_hci_uart: bt-hci-uart {
+		compatible = "zephyr,bt-hci-uart";
+		status = "okay";
+
+		murata_1dx {
+			compatible = "infineon,bt-hci-uart";
+			status = "okay";
+
+			fw-download-speed = <115200>;
+		};
+	};
 };
 
 &uart1 {

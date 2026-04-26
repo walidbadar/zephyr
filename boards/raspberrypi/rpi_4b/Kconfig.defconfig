@@ -1,0 +1,14 @@
+# Copyright (c) 2026 Muhammad Waleed Badar
+# SPDX-License-Identifier: Apache-2.0
+
+if BOARD_RPI_4B
+
+if BT
+
+choice AIROC_PART
+	default CYW43438
+endchoice
+
+endif # BT
+
+endif # BOARD_RPI_4B
