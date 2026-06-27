@@ -1,0 +1,7 @@
+# Copyright (c) 2026 Muhammad Waleed Badar
+# SPDX-License-Identifier: Apache-2.0
+
+config SOC_QCA9531
+	select MIPS
+	select MIPS_CP0_TIMER
+	select BIG_ENDIAN

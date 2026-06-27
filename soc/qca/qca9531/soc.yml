@@ -1,0 +1,4 @@
+series:
+- name: qca9531
+  socs:
+  - name: qca9531

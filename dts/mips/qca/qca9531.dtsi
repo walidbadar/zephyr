@@ -1,0 +1,57 @@
+/*
+ * Copyright (c) 2026 Muhammad Waleed Badar
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/dts-v1/;
+
+#include <mem.h>
+#include <freq.h>
+
+#include "skeleton.dtsi"
+
+/ {
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu@0 {
+			device_type = "cpu";
+			compatible = "mti,mips24Kc";
+			clock-frequency = <DT_FREQ_M(650)>;
+			reg = <0>;
+		};
+	};
+
+	cpu_intc: interrupt-controller {
+		compatible = "mti,cpu-intc";
+		#interrupt-cells = <1>;
+		interrupt-controller;
+	};
+
+	ahb {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		interrupt-parent = <&cpu_intc>;
+
+		apb {
+			compatible = "simple-bus";
+			#address-cells = <1>;
+			#size-cells = <1>;
+			ranges;
+
+			uart0: uart@18020000 {
+				compatible = "ns16550";
+				reg = <0x18020000 0x20>;
+				reg-shift = <2>;
+				interrupts = <3>;
+				clock-frequency = <DT_FREQ_M(25)>;
+				status = "disabled";
+			};
+		};
+	};
+};

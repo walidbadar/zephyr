@@ -1,0 +1,8 @@
+# Copyright (c) 2026 Muhammad Waleed Badar
+# SPDX-License-Identifier: Apache-2.0
+
+config SOC_QCA9531
+	bool
+
+config SOC
+	default "qca9531" if SOC_QCA9531
