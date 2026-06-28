@@ -1,0 +1,10 @@
+# Copyright (c) 2026 Muhammad Waleed Badar
+# SPDX-License-Identifier: Apache-2.0
+
+identifier: wr840n_v2
+name: TP-LINK TL-WR840N v2
+type: mcu
+arch: mips
+toolchain:
+  - zephyr
+vendor: tp-link

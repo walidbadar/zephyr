@@ -1,0 +1,6 @@
+board:
+  name: wr840n_v2
+  full_name: TP-LINK TL-WR840N v2
+  vendor: tp-link
+  socs:
+  - name: qca9531
