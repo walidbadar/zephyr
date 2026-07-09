@@ -1,0 +1,37 @@
+# Copyright (c) 2025 Advanced Micro Devices, Inc. (AMD)
+# SPDX-License-Identifier: Apache-2.0
+
+config CDNS_SDHC
+	bool "xlnx sdhc driver"
+	default y
+	depends on DT_HAS_CDNS_SDHC_ENABLED
+	select SDHC_SUPPORTS_NATIVE_MODE
+	select SDHC_SUPPORTS_UHS
+	select CLOCK_CONTROL
+	select CLOCK_CONTROL_FIXED_RATE_CLOCK
+	select CACHE_MANAGEMENT if DCACHE
+	select EVENTS
+	help
+	  Enable DESC_SIZE SD/EMMC host controller driver
+
+if CDNS_SDHC
+
+config CDNS_SDHC_ADMA2_SUPPORT
+	bool "ADMA2 support"
+	default y
+	help
+	  Select ADMA2 support
+
+config CDNS_SDHC_DESC_SIZE
+	int "Max descriptor SIZE"
+	default 32
+	depends on CDNS_SDHC_ADMA2_SUPPORT
+	help
+	  Set max number of descriptors supported
+
+# Cadence SDHC DMA buffers require cache-line alignment
+config SDHC_BUFFER_ALIGNMENT
+	default DCACHE_LINE_SIZE if DCACHE
+	default 32
+
+endif
