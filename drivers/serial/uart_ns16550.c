@@ -423,7 +423,13 @@ static void ns16550_outbyte(const struct uart_ns16550_dev_config *cfg,
 #endif
 		/* MMIO mapped */
 		if (IS_ENABLED(CONFIG_UART_NS16550_ACCESS_WORD_ONLY)) {
-			sys_write32(val, port);
+			if (IS_ENABLED(CONFIG_BIG_ENDIAN)) {
+				sys_write32((uint32_t)val << ((cfg->reg_interval - 1) * 8), port);
+			} else {
+				sys_write32(val, port);
+			}
+		} else if (IS_ENABLED(CONFIG_BIG_ENDIAN)) {
+			sys_write8(val, port + cfg->reg_interval - 1);
 		} else {
 			sys_write8(val, port);
 		}
@@ -446,7 +452,13 @@ static uint8_t ns16550_inbyte(const struct uart_ns16550_dev_config *cfg,
 #endif
 		/* MMIO mapped */
 		if (IS_ENABLED(CONFIG_UART_NS16550_ACCESS_WORD_ONLY)) {
-			return sys_read32(port);
+			if (IS_ENABLED(CONFIG_BIG_ENDIAN)) {
+				return (sys_read32(port) >> ((cfg->reg_interval - 1) * 8));
+			} else {
+				return sys_read32(port);
+			}
+		} else if (IS_ENABLED(CONFIG_BIG_ENDIAN)) {
+			return sys_read8(port + cfg->reg_interval - 1);
 		} else {
 			return sys_read8(port);
 		}
