@@ -15,6 +15,10 @@
 	model = "DOIT ESP32-Devkit-V1 PROCPU";
 	compatible = "doit,esp32-devkit-v1";
 
+	chosen {
+		zephyr,touch = &ekt2101;
+	};
+
 	aliases {
 		uart-0 = &uart0;
 		i2c-0 = &i2c0;
@@ -92,6 +96,14 @@
 	scl-gpios = <&gpio0 22 GPIO_OPEN_DRAIN>;
 	pinctrl-0 = <&i2c0_default>;
 	pinctrl-names = "default";
+
+	ekt2101: ekt2101@10 {
+		status = "okay";
+		compatible = "elan,ekt2101";
+		reg = <0x10>;
+		irq-gpios = <&gpio0 4 GPIO_ACTIVE_HIGH>;
+		polling-interval-ms = <50>;
+	};
 };
 
 &i2s0 {

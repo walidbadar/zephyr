@@ -1,0 +1,20 @@
+description: ELAN eKT2101 Touchpad Controller
+
+compatible: "elan,ekt2101"
+
+include: i2c-device.yaml
+
+properties:
+  irq-gpios:
+    type: phandle-array
+    required: true
+    description: |
+      Interrupt GPIO. Used by the controller to signal touch data is available. Active low.
+
+  polling-interval-ms:
+    type: int
+    default: 50
+    min: 20
+    description: |
+      Interval between two reads, in ms. The interval must be greater than 20 ms or equal to 0 ms.
+      Defaults to 50 ms.
