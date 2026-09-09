@@ -42,6 +42,11 @@
 		zephyr,shell-uart = &uart0;
 		zephyr,ocm = &ocm_low;
 		zephyr,uart-pipe = &uart1;
+		zephyr,sdhc = &sdhc0;
+	};
+
+	aliases {
+		sdhc0 = &sdhc0;
 	};
 };
 
@@ -70,6 +75,25 @@
 	gem0_phy: phy@0 {
 		compatible = "ethernet-phy";
 		reg = <0>;
+		status = "okay";
+	};
+};
+
+&sdhc0 {
+	// compatible = "cdns,sd6hc", "cdns,sdhc";
+	// reg = <0xe0100000 0x1000>, <0xe0200000 0x1000>;
+	// reg-names = "slot", "host";
+	// has-host;
+
+	// compatible = "cdns,sdhc";
+	// reg = <0xe0100000 0x1000>;
+	// reg-names = "slot";
+
+	status = "okay";
+
+	sdmmc {
+		compatible = "zephyr,sdmmc-disk";
+		disk-name = "SD";
 		status = "okay";
 	};
 };

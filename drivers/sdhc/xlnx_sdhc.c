@@ -894,9 +894,9 @@ static int xlnx_sdhc_set_clock(const struct device *dev, enum sdhc_clock_speed s
 	value |= XLNX_SDHC_CC_INT_CLK_EN_MASK;
 
 	/* Configure dll clock */
-	if (dev_data->has_phy == true) {
-		xlnx_sdhc_config_dll_clock(reg, speed);
-	}
+	// if (dev_data->has_phy == true) {
+	// 	xlnx_sdhc_config_dll_clock(reg, speed);
+	// }
 
 	/* Wait max 150ms for internal clock to be stable */
 	reg->clock_ctrl = value;
@@ -910,9 +910,9 @@ static int xlnx_sdhc_set_clock(const struct device *dev, enum sdhc_clock_speed s
 	reg->clock_ctrl |= XLNX_SDHC_CC_SD_CLK_EN_MASK;
 
 	/* Enable dll clock */
-	if ((dev_data->has_phy == true) && (speed >= SD_CLOCK_50MHZ)) {
-		ret = xlnx_sdhc_enable_dll_clock(reg);
-	}
+	// if ((dev_data->has_phy == true) && (speed >= SD_CLOCK_50MHZ)) {
+	// 	ret = xlnx_sdhc_enable_dll_clock(reg);
+	// }
 
 	return ret;
 }
@@ -1234,13 +1234,13 @@ static int8_t xlnx_sdhc_set_timing(const struct device *dev, enum sdhc_timing_mo
 	}
 
 	/* clock phase delays are different for SD 3.0 and EMMC 5.1 */
-	if (dev_data->has_phy == true) {
-		xlnx_sdhc_config_emmc_otap_delay(dev, timing);
-		xlnx_sdhc_config_emmc_itap_delay(dev, timing);
-	} else {
-		xlnx_sdhc_config_sd_otap_delay(dev, timing);
-		xlnx_sdhc_config_sd_itap_delay(dev, timing);
-	}
+	// if (dev_data->has_phy == true) {
+	// 	xlnx_sdhc_config_emmc_otap_delay(dev, timing);
+	// 	xlnx_sdhc_config_emmc_itap_delay(dev, timing);
+	// } else {
+	// 	xlnx_sdhc_config_sd_otap_delay(dev, timing);
+	// 	xlnx_sdhc_config_sd_itap_delay(dev, timing);
+	// }
 
 	return 0;
 }
