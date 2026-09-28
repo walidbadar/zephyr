@@ -58,6 +58,7 @@ def test_runner_imports():
         'probe-rs',
         'pyocd',
         'qemu',
+        'quartus',
         'renode',
         'renode-robot',
         'rfp',

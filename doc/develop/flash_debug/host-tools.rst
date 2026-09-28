@@ -676,6 +676,41 @@ and leaves you at the XSDB prompt.
    tool via the west runner; obtaining and licensing the toolchain is the user's
    responsibility.
 
+.. _runner_quartus:
+
+Quartus Prime Programmer
+************************
+
+The ``quartus`` runner programs the configuration flash of Altera SoC FPGAs
+over JTAG with ``quartus_pgm``, from a JTAG Indirect Configuration File
+(``.jic``). The tools are **not** included in the Zephyr SDK: install Quartus
+Prime or the standalone Quartus Prime Programmer and ensure ``quartus_pgm`` and
+``quartus_pfg`` are on your system :ref:`PATH <env_vars>`.
+
+Without ``--jic``, the runner converts the TF-A BL2 image (``--bl2``) to Intel
+HEX and combines it with the FPGA design (``--sof``) into a ``.jic`` with
+``quartus_pfg``. ``--flash-device`` and ``--flash-loader`` give the
+configuration flash device and the FPGA part number:
+
+.. code-block:: console
+
+   west flash --runner quartus --sof design.sof \
+      --flash-device <flash device> --flash-loader <FPGA part>
+
+``--fip`` adds a TF-A Firmware Image Package to the ``.jic`` as raw data at
+the offset given with ``--fip-offset``, for boards whose BL2 loads the FIP
+from the configuration flash. The runner then writes a Programming File
+Generator settings file (``.pfg``) to the build directory and passes it to
+``quartus_pfg``; ``--pfg-option`` cannot be combined with ``--fip``.
+
+To program an existing file:
+
+.. code-block:: console
+
+   west flash --runner quartus --jic design.jic
+
+Only ``flash`` is supported.
+
 .. _runner_uf2:
 
 UF2 Uploader

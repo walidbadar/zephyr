@@ -60,6 +60,7 @@ _names = [
     'probe_rs',
     'pyocd',
     'qemu',
+    'quartus',
     'renode',
     'renode-robot',
     'rfp',
