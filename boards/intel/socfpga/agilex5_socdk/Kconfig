@@ -1,0 +1,23 @@
+# Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+if BUILD_WITH_TFA
+
+choice AGILEX5_SOCDK_TFA_BOOT_SOURCE
+	prompt "TF-A BL2 boot source"
+	default AGILEX5_SOCDK_TFA_BOOT_SOURCE_QSPI
+	help
+	  Device from which TF-A BL2 loads the FIP containing BL31 and Zephyr.
+
+config AGILEX5_SOCDK_TFA_BOOT_SOURCE_SDMMC
+	bool "SD/MMC"
+
+config AGILEX5_SOCDK_TFA_BOOT_SOURCE_QSPI
+	bool "QSPI flash"
+
+config AGILEX5_SOCDK_TFA_BOOT_SOURCE_NAND
+	bool "NAND flash"
+
+endchoice
+
+endif # BUILD_WITH_TFA

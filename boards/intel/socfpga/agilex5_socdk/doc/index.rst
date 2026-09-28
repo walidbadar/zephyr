@@ -43,9 +43,17 @@ Boot flow:
 Intel Arm Trusted Firmware (ATF) can be downloaded from github:
         `altera-opensource/arm-trusted-firmware <https://github.com/altera-opensource/arm-trusted-firmware.git>`_
 
+The build also produces ATF BL2, BL31 and a Firmware Image Package (FIP) that
+contains BL31 and Zephyr as BL33, under ``build/tfa/agilex5/<release|debug>/``.
+BL2 loads the FIP from the device selected with
+``CONFIG_AGILEX5_SOCDK_TFA_BOOT_SOURCE_QSPI`` (default),
+``CONFIG_AGILEX5_SOCDK_TFA_BOOT_SOURCE_SDMMC`` or
+``CONFIG_AGILEX5_SOCDK_TFA_BOOT_SOURCE_NAND``. Disable ``CONFIG_BUILD_WITH_TFA``
+to build Zephyr only, for use with a separately built ATF.
+
 Flashing
 ========
-Zephyr image can be loaded in DDR memory at address 0x80000000 from
+Zephyr image can be loaded in DDR memory at address 0x80100000 from
 SD Card or QSPI Flash or NAND in ATF BL2.
 
 Debugging
