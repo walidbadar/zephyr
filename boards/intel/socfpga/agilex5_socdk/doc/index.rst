@@ -56,6 +56,21 @@ Flashing
 Zephyr image can be loaded in DDR memory at address 0x80100000 from
 SD Card or QSPI Flash or NAND in ATF BL2.
 
+BL2 is loaded by the Secure Device Manager (SDM) from the FPGA configuration
+image in QSPI flash. The :ref:`quartus <runner_quartus>` runner combines the
+ATF ``bl2.bin`` from the build with the FPGA design ``.sof`` into a ``.jic``
+file and programs it over JTAG. The runner uses the MT25QU02G QSPI flash of the
+development kit; pass the design and the FPGA part number of your board:
+
+.. code-block:: console
+
+   west flash --sof design.sof --flash-loader <FPGA part>
+
+With ``CONFIG_AGILEX5_SOCDK_TFA_BOOT_SOURCE_QSPI``, the runner also adds
+``fip.bin`` to the ``.jic`` at offset ``0x3C00000`` of the QSPI flash, where
+BL2 loads it from. For SD/MMC and NAND boot, write ``fip.bin`` to the boot
+device yourself; on an SD card it goes in the partition of type ``a2``.
+
 Debugging
 =========
 The Intel® Agilex™ 5 SoC Development Kit includes one JTAG connector on
