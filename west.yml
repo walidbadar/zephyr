@@ -398,7 +398,8 @@ manifest:
       groups:
         - crypto
     - name: trusted-firmware-a
-      revision: 4d431cbbb451d13359534c63bf67e2d315ca37de
+      url: https://github.com/altera-opensource/arm-trusted-firmware
+      revision: 2ea5afda7f34774ddcc677fb3a728fa57f780a1e
       path: modules/tee/tf-a/trusted-firmware-a
       groups:
         - tee
