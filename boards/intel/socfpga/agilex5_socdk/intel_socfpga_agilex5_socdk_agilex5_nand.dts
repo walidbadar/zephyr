@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, Intel Corporation.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, Altera Corporation.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -9,31 +9,30 @@
 #include "intel_socfpga_agilex5_socdk_common.dtsi"
 
 / {
-	model = "Intel SoC FPGA Agilex5";
-	compatible = "intel,socfpga-agilex5";
+	model = "Intel SoC FPGA Agilex5 NAND daughter board";
+	compatible = "intel,socfpga-agilex5-socdk-nand", "intel,socfpga-agilex5";
 
 	aliases {
 		led0 = &led0;
+		led1 = &led1;
+		nand = &nand;
 	};
 
 	leds {
 		compatible = "gpio-leds";
 
 		led0: led0 {
-			gpios = <&gpio0 11 GPIO_ACTIVE_HIGH>;
+			gpios = <&gpio0 6 GPIO_ACTIVE_HIGH>;
+		};
+
+		led1: led1 {
+			gpios = <&gpio0 7 GPIO_ACTIVE_HIGH>;
 		};
 	};
 };
 
-&sdmmc {
+&nand {
 	status = "okay";
-
-	mmc {
-		/*SD Disk Access */
-		compatible = "zephyr,sdmmc-disk";
-		disk-name = "SD";
-		status = "okay";
-	};
 };
 
 &xgmac0 {

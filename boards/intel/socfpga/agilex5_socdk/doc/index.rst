@@ -23,6 +23,24 @@ The Intel® Agilex™ 5 Development Kit supports the following physical features
 - On-board JTAG Intel FPGA Download Cable II
 - QSPI flash daughtercard
 
+Board Variants
+==============
+
+The board variants follow the Linux device trees for the same hardware:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Board target
+     - Hardware
+   * - ``intel_socfpga_agilex5_socdk``
+     - Development kit with the SD card daughter board (``socfpga_agilex5_socdk``)
+   * - ``intel_socfpga_agilex5_socdk/agilex5/nand``
+     - Development kit with the NAND daughter board (``socfpga_agilex5_socdk_nand``)
+
+The NAND daughter board shares the HPS pins of the SD card interface, so the ``nand`` variant
+enables the NAND controller instead of the SD/MMC controller.
+
 Supported Features
 ==================
 
