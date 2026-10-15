@@ -1,0 +1,81 @@
+# espressif,esp32-mspi.yaml
+# Copyright (c) 2026, Pavel Maloletkov
+# SPDX-License-Identifier: Apache-2.0
+
+title: Espressif ESP32 GP-SPI (General Purpose Serial Peripheral Interface) controller
+
+description: |
+  SPI2 and SPI3 peripherals of the ESP32 family, used through the MSPI API.
+
+compatible: "espressif,esp32-mspi"
+
+include: [mspi-controller.yaml, pinctrl-device.yaml]
+
+properties:
+  pinctrl-0:
+    required: true
+
+  pinctrl-names:
+    required: true
+
+  reg:
+    required: true
+
+  peripheral-id:
+    type: int
+    required: true
+    description: |
+      SPI peripheral index: 0 for SPI2, 1 for SPI3. SPI0 and SPI1 are reserved
+      for the flash cache.
+
+  clocks:
+    required: true
+
+  clock-frequency:
+    type: int
+    default: 80000000
+    description: Maximum bus clock in Hz.
+
+  dma-enabled:
+    type: boolean
+    description: Use DMA for data transfers.
+
+  dmas:
+    type: phandle-array
+    description: |
+      GDMA channels for TX and RX. Required with dma-enabled on SoCs with a
+      GDMA controller (ESP32-S3, ESP32-C3, ESP32-C6, ESP32-P4, ...).
+
+  dma-names:
+    type: string-array
+    description: Names of the dmas entries, "tx" and "rx".
+
+  dma-host:
+    type: int
+    description: DMA peripheral slot, 0 for SPI2 and 1 for SPI3.
+
+  dma-clk:
+    type: int
+    description: |
+      Clock module ID of the integrated SPI DMA engine. Only on ESP32 and
+      ESP32-S2, which have no GDMA controller.
+
+  line-idle-low:
+    type: boolean
+    description: Drive the data lines low when idle instead of high.
+
+  use-iomux:
+    type: boolean
+    description: |
+      Route the signals through IO_MUX instead of the GPIO matrix. Needed above
+      20 MHz; only the dedicated IO_MUX pins of the peripheral can be used.
+
+  transfer-timeout-ms:
+    type: int
+    default: 100
+    description: Transfer timeout in milliseconds for transfers that set none.
+
+  duty-cycle:
+    type: int
+    default: 128
+    description: Clock duty cycle, 0 to 255 with 128 for 50 %.
