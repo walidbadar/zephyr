@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, Altera Corporation.
+# SPDX-License-Identifier: Apache-2.0
+
+config ALTERA_SDM_VOLTAGE
+	bool "Altera SoC FPGA SDM voltage sensor"
+	default y
+	depends on DT_HAS_ALTR_SOCFPGA_SDM_VOLTAGE_ENABLED
+	depends on ALTERA_SDM
+	help
+	  Enable the driver for the voltage sensors of the Secure Device
+	  Manager (SDM) of Altera SoC FPGAs, read through the SDM mailbox.

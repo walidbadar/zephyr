@@ -1,0 +1,33 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, Altera Corporation.
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  Voltage sensor of the Secure Device Manager (SDM) of Altera SoC FPGAs.
+
+  The voltage is read with the SDM mailbox GET_VOLTAGE command. The sensor
+  has no interface of its own, so it is modelled as a child of the
+  altr,socfpga-sdm node. Each node describes one SDM voltage channel and is
+  exposed as SENSOR_CHAN_VOLTAGE.
+
+  Example:
+
+    &sdm {
+            status = "okay";
+
+            vcc: voltage-2 {
+                    compatible = "altr,socfpga-sdm-voltage";
+                    channel = <2>;
+            };
+    };
+
+compatible: "altr,socfpga-sdm-voltage"
+
+include: sensor-device.yaml
+
+properties:
+  channel:
+    type: int
+    required: true
+    description: |
+      SDM voltage channel number, 0 to 15. The channel to rail mapping is
+      device specific; see the SDM mailbox documentation of the SoC.
