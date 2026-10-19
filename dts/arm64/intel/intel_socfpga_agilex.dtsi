@@ -124,6 +124,11 @@
 		sdm: sdm {
 			compatible = "altr,socfpga-sdm";
 			status = "disabled";
+
+			sdm_rng: rng {
+				compatible = "altr,socfpga-sdm-rng";
+				status = "disabled";
+			};
 		};
 	};
 
