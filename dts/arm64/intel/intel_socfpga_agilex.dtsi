@@ -124,6 +124,11 @@
 		sdm: sdm {
 			compatible = "altr,socfpga-sdm";
 			status = "disabled";
+
+			sdm_fcs: fcs {
+				compatible = "altr,socfpga-sdm-fcs";
+				status = "disabled";
+			};
 		};
 	};
 
