@@ -9,16 +9,181 @@
 #include <string.h>
 
 #include <zephyr/device.h>
+#include <zephyr/drivers/display.h>
 #include <zephyr/drivers/video.h>
 #include <zephyr/init.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/sys/byteorder.h>
 #include <zephyr/usb/usbh.h>
 #include <zephyr/video/video.h>
 
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
 USBH_CONTROLLER_DEFINE(uhs_ctx, DEVICE_DT_GET(DT_NODELABEL(zephyr_uhc0)));
+
+#if defined(CONFIG_DISPLAY) && DT_HAS_CHOSEN(zephyr_display)
+#define DISPLAY_NODE   DT_CHOSEN(zephyr_display)
+#define DISPLAY_WIDTH  DT_PROP(DISPLAY_NODE, width)
+#define DISPLAY_HEIGHT DT_PROP(DISPLAY_NODE, height)
+
+/* Display formats the frames are converted to, in order of preference */
+static const enum display_pixel_format display_formats[] = {
+	PIXEL_FORMAT_ARGB_8888, PIXEL_FORMAT_XRGB_8888, PIXEL_FORMAT_RGB_888,
+	PIXEL_FORMAT_RGB_565,   PIXEL_FORMAT_RGB_565X,
+};
+
+static const struct device *const display_dev = DEVICE_DT_GET(DISPLAY_NODE);
+static uint8_t display_line[DISPLAY_WIDTH * 4];
+static enum display_pixel_format display_format;
+static bool display_ready;
+
+static int display_setup(void)
+{
+	struct display_capabilities caps;
+
+	if (!device_is_ready(display_dev)) {
+		LOG_WRN("Display %s is not ready", display_dev->name);
+		return -ENODEV;
+	}
+
+	display_get_capabilities(display_dev, &caps);
+	ARRAY_FOR_EACH(display_formats, i) {
+		if (caps.current_pixel_format == display_formats[i] ||
+		    ((caps.supported_pixel_formats & display_formats[i]) != 0U &&
+		     display_set_pixel_format(display_dev, display_formats[i]) == 0)) {
+			display_format = display_formats[i];
+			break;
+		}
+	}
+
+	if (display_format == 0) {
+		LOG_WRN("Display %s has no supported pixel format", display_dev->name);
+		return -ENOTSUP;
+	}
+
+	display_blanking_off(display_dev);
+	display_ready = true;
+
+	return 0;
+}
+
+static void yuv_to_rgb(int32_t y, int32_t u, int32_t v, uint8_t rgb[3])
+{
+	/* ITU-R BT.601, limited range */
+	int32_t c = 298 * (y - 16) + 128;
+
+	rgb[0] = CLAMP((c + 409 * (v - 128)) >> 8, 0, 255);
+	rgb[1] = CLAMP((c - 100 * (u - 128) - 208 * (v - 128)) >> 8, 0, 255);
+	rgb[2] = CLAMP((c + 516 * (u - 128)) >> 8, 0, 255);
+}
+
+static bool get_rgb(uint32_t pixelformat, const uint8_t *line, uint32_t x, uint8_t rgb[3])
+{
+	uint16_t v;
+
+	switch (pixelformat) {
+	case VIDEO_PIX_FMT_YUYV: {
+		/* Two pixels share one U and one V: Y0 U Y1 V */
+		const uint8_t *pair = &line[(x & ~1U) * 2U];
+
+		yuv_to_rgb(pair[(x & 1U) * 2U], pair[1], pair[3], rgb);
+		return true;
+	}
+	case VIDEO_PIX_FMT_RGB565:
+	case VIDEO_PIX_FMT_RGB565X:
+		v = (pixelformat == VIDEO_PIX_FMT_RGB565) ? sys_get_le16(&line[x * 2U])
+							  : sys_get_be16(&line[x * 2U]);
+		rgb[0] = (v >> 8) & 0xf8;
+		rgb[1] = (v >> 3) & 0xfc;
+		rgb[2] = (v << 3) & 0xf8;
+		return true;
+	default:
+		return false;
+	}
+}
+
+static void put_rgb(uint8_t *const out, const uint8_t rgb[3])
+{
+	uint16_t v = ((rgb[0] & 0xf8) << 8) | ((rgb[1] & 0xfc) << 3) | (rgb[2] >> 3);
+
+	switch (display_format) {
+	case PIXEL_FORMAT_RGB_565:
+		sys_put_le16(v, out);
+		break;
+	case PIXEL_FORMAT_RGB_565X:
+		sys_put_be16(v, out);
+		break;
+	case PIXEL_FORMAT_RGB_888:
+		out[0] = rgb[2];
+		out[1] = rgb[1];
+		out[2] = rgb[0];
+		break;
+	default:
+		/* ARGB8888 and XRGB8888 */
+		out[0] = rgb[2];
+		out[1] = rgb[1];
+		out[2] = rgb[0];
+		out[3] = 0xff;
+		break;
+	}
+}
+
+/* Show a frame centered, scaled up by the largest integer factor that fits, else cropped */
+static void display_frame(const struct video_buffer *const vbuf,
+			  const struct video_format *const fmt)
+{
+	const size_t bpp = DISPLAY_BITS_PER_PIXEL(display_format) / 8U;
+	const uint32_t width = MIN(fmt->width, DISPLAY_WIDTH);
+	const uint32_t height = MIN(fmt->height, DISPLAY_HEIGHT);
+	const uint32_t scale = MIN(DISPLAY_WIDTH / width, DISPLAY_HEIGHT / height);
+	struct display_buffer_descriptor desc;
+	uint8_t rgb[3];
+
+	/* Compressed formats have no pitch */
+	if (!display_ready || fmt->pitch == 0U || vbuf->bytesused < fmt->pitch * fmt->height) {
+		return;
+	}
+
+	desc.width = width * scale;
+	desc.height = 1;
+	desc.pitch = desc.width;
+	desc.buf_size = desc.width * bpp;
+	desc.frame_incomplete = false;
+
+	for (uint32_t row = 0; row < height; row++) {
+		const uint8_t *line = vbuf->buffer + row * fmt->pitch;
+
+		for (uint32_t x = 0; x < width; x++) {
+			if (!get_rgb(fmt->pixelformat, line, x, rgb)) {
+				return;
+			}
+
+			for (uint32_t s = 0; s < scale; s++) {
+				put_rgb(&display_line[(x * scale + s) * bpp], rgb);
+			}
+		}
+
+		for (uint32_t s = 0; s < scale; s++) {
+			display_write(display_dev, (DISPLAY_WIDTH - desc.width) / 2,
+				      (DISPLAY_HEIGHT - height * scale) / 2 + row * scale + s,
+				      &desc, display_line);
+		}
+	}
+}
+#else
+static int display_setup(void)
+{
+	return -ENOTSUP;
+}
+
+static void display_frame(const struct video_buffer *const vbuf,
+			  const struct video_format *const fmt)
+{
+	ARG_UNUSED(vbuf);
+	ARG_UNUSED(fmt);
+}
+#endif
 
 /* Wait for video device connection */
 static void wait_for_video_connection(const struct device *uvc_dev, struct video_format *fmt,
@@ -250,7 +415,8 @@ static int cleanup_video_streaming(const struct device *uvc_dev,
 	return 0;
 }
 
-static int process_video_stream(const struct device *uvc_dev, uint32_t *frame_count)
+static int process_video_stream(const struct device *uvc_dev, const struct video_format *fmt,
+				uint32_t *frame_count)
 {
 	struct video_buffer *vbuf = NULL;
 	int err;
@@ -269,6 +435,8 @@ static int process_video_stream(const struct device *uvc_dev, uint32_t *frame_co
 	if (*frame_count % 100 == 0) {
 		LOG_INF("Received %u frames", *frame_count);
 	}
+
+	display_frame(vbuf, fmt);
 
 	err = video_enqueue(uvc_dev, vbuf);
 	if (err == -ENODEV) {
@@ -313,6 +481,8 @@ int main(void)
 
 	LOG_INF("USB host video device %s is ready", uvc_dev->name);
 
+	(void)display_setup();
+
 	k_poll_signal_init(&sig);
 	k_poll_event_init(&evt[0], K_POLL_TYPE_SIGNAL, K_POLL_MODE_NOTIFY_ONLY, &sig);
 
@@ -345,7 +515,7 @@ int main(void)
 				continue;
 			}
 
-			err = process_video_stream(uvc_dev, &frame_count);
+			err = process_video_stream(uvc_dev, &fmt, &frame_count);
 			if (err == -ENODEV) {
 				break;
 			}

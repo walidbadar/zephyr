@@ -32,7 +32,40 @@ The sample can be built and flashed as follows:
    :goals: build flash
    :compact:
 
+Running on QEMU
+===============
+
+On :zephyr:board:`qemu_cortex_a72`, a USB camera of the host can be passed through to the
+emulated USB host controller, and the video is shown in the QEMU window. This needs a QEMU with
+the ``usb-host`` device, which the QEMU of the Zephyr SDK does not have; the QEMU of the host
+distribution usually does.
+
+Find the vendor and product ID of the camera, and give QEMU write access to its device node:
+
+.. code-block:: console
+
+   $ lsusb
+   Bus 001 Device 004: ID 0bda:579f Realtek Semiconductor Corp. USB Camera
+   $ sudo chmod 666 /dev/bus/usb/001/004
+
+Point the build at the host QEMU and the IDs of the camera:
+
+.. code-block:: console
+
+   $ export QEMU_BIN_PATH=/usr/bin
+   $ export QEMU_EXTRA_FLAGS="-device usb-host,bus=usb-bus.0,vendorid=0x0bda,productid=0x579f"
+
+Then build and run the sample:
+
+.. zephyr-app-commands::
+   :zephyr-app: samples/subsys/usb/host_uvc
+   :board: qemu_cortex_a72
+   :goals: run
+   :compact:
+
 The device is expected to detect the USB camera automatically when connected.
+
+When the board has a display, the video is shown on it.
 
 Sample Output
 =============
