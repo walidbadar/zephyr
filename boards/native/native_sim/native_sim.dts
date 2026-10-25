@@ -277,6 +277,13 @@
 		stream-direction = "tx";
 	};
 
+	video_fifo: video-fifo {
+		status = "disabled";
+		compatible = "zephyr,native-sim-video-fifo";
+		/* Host V4L2 device or FIFO; override it with --video-fifo=<path> */
+		fifo-path = "/dev/video0";
+	};
+
 	dma: dma {
 		compatible = "zephyr,dma-emul";
 		#dma-cells = <1>;
