@@ -389,6 +389,8 @@ static int dwc2_tx_fifo_write(const struct device *dev,
 		    usb_dwc2_set_dieptsizn_xfersize(len), dieptsiz_reg);
 
 	if (dwc2_in_buffer_dma_mode(dev)) {
+		mem_addr_t dma_addr = (mem_addr_t)buf->data;
+
 		if (!dwc2_dma_buffer_ok_to_use(dev, buf->data, len, cfg->mps)) {
 			/* Cannot continue unless buffer is bounced. Device will
 			 * cease to function. Is fatal error appropriate here?
@@ -397,8 +399,8 @@ static int dwc2_tx_fifo_write(const struct device *dev,
 			return -ENOTSUP;
 		}
 
-		sys_write32((uint32_t)(uintptr_t)(buf->data),
-			    (mem_addr_t)&base->in_ep[ep_idx].diepdma);
+		dwc2_quirk_dma_addr_xlate(dev, &dma_addr);
+		sys_write32((uint32_t)dma_addr, (mem_addr_t)&base->in_ep[ep_idx].diepdma);
 	}
 
 	diepctl = sys_read32(diepctl_reg);
@@ -586,6 +588,7 @@ static void dwc2_prep_rx(const struct device *dev, struct net_buf *buf,
 
 	if (dwc2_in_buffer_dma_mode(dev)) {
 		void *data = net_buf_tail(buf);
+		mem_addr_t dma_addr = (mem_addr_t)data;
 
 		if (!dwc2_dma_buffer_ok_to_use(dev, data, xfersize, cfg->mps)) {
 			/* Cannot continue unless buffer is bounced. Device will
@@ -594,8 +597,12 @@ static void dwc2_prep_rx(const struct device *dev, struct net_buf *buf,
 			return;
 		}
 
-		sys_write32((uint32_t)(uintptr_t)(data),
-			    (mem_addr_t)&base->out_ep[ep_idx].doepdma);
+		dwc2_quirk_dma_addr_xlate(dev, &dma_addr);
+		if (ep_idx == 0) {
+			priv->ep0_out_dma_offset = dma_addr - (mem_addr_t)data;
+		}
+
+		sys_write32((uint32_t)dma_addr, (mem_addr_t)&base->out_ep[ep_idx].doepdma);
 	}
 
 	sys_write32(doepctl, doepctl_reg);
@@ -2533,7 +2540,7 @@ static inline void dwc2_handle_oepint(const struct device *dev)
 		if (dwc2_in_buffer_dma_mode(dev) &&
 		    (status & USB_DWC2_DOEPINT_XFERCOMPL) &&
 		    (doepint & USB_DWC2_DOEPINT_STUPPKTRCVD)) {
-			uint32_t addr;
+			mem_addr_t addr;
 
 			sys_write32(USB_DWC2_DOEPINT_STUPPKTRCVD, doepint_reg);
 			status &= ~USB_DWC2_DOEPINT_XFERCOMPL;
@@ -2543,7 +2550,8 @@ static inline void dwc2_handle_oepint(const struct device *dev)
 			 * to temporary location used also in Completer mode
 			 * which allows common SETUP interrupt handling.
 			 */
-			addr = sys_read32((mem_addr_t)&base->out_ep[0].doepdma);
+			addr = sys_read32((mem_addr_t)&base->out_ep[0].doepdma) -
+			       priv->ep0_out_dma_offset;
 			sys_cache_data_invd_range((void *)(uintptr_t)(addr - 8), 8);
 			memcpy(priv->setup, (void *)(uintptr_t)(addr - 8), sizeof(priv->setup));
 		}

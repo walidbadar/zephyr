@@ -50,6 +50,16 @@ static inline int brcm_bcm2835_usb_disable(struct brcm_bcm2835_usb_power *power)
 	return ret;
 }
 
+/* The controller reaches RAM through the SoC's dma-ranges, e.g. at the VideoCore bus alias */
+static inline void brcm_bcm2835_usb_dma_addr_xlate(const struct device *dev,
+						   mem_addr_t *const dma_addr)
+{
+	ARG_UNUSED(dev);
+
+	*dma_addr = *dma_addr - DT_DMA_RANGES_PARENT_BUS_ADDRESS_BY_IDX(DT_PATH(soc), 0) +
+		    DT_DMA_RANGES_CHILD_BUS_ADDRESS_BY_IDX(DT_PATH(soc), 0);
+}
+
 static inline int brcm_bcm2835_usb_caps(const struct device *dev)
 {
 	struct udc_data *data = dev->data;
@@ -82,6 +92,7 @@ static inline int brcm_bcm2835_usb_caps(const struct device *dev)
 		.pre_enable = brcm_bcm2835_usb_pre_enable_##n,			\
 		.disable = brcm_bcm2835_usb_disable_##n,				\
 		.shutdown = brcm_bcm2835_usb_disable_##n,				\
+		.dma_addr_xlate = brcm_bcm2835_usb_dma_addr_xlate,			\
 	};
 
 DT_INST_FOREACH_STATUS_OKAY(BRCM_BCM2835_USB_DEFINE)
