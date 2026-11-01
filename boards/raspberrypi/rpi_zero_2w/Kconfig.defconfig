@@ -6,10 +6,10 @@ if BOARD_RPI_ZERO_2W
 config PM_DEVICE
 	default y if PM
 
-if PM_DEVICE
-
 config POWER_DOMAIN
-	default y
+	default y if PM_DEVICE || UDC_DWC2 || UHC_DWC2
+
+if PM_DEVICE
 
 config PM_DEVICE_POWER_DOMAIN
 	default y
