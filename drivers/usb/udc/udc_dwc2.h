@@ -113,6 +113,8 @@ struct udc_dwc2_data {
 	unsigned int syncrst : 1;
 	/* Defect workarounds */
 	unsigned int wa_essregrestored : 1;
+	/* Core reports SETUP data in DMA mode with StupPktRcvd */
+	unsigned int stuppktrcvd : 1;
 	/* Runtime state flags */
 	unsigned int hibernated : 1;
 	unsigned int enumdone : 1;

@@ -1612,6 +1612,7 @@ static int udc_dwc2_init_controller(const struct device *dev)
 	/* Enable RTL workarounds based on controller revision */
 	gsnpsid = sys_read32((mem_addr_t)&base->gsnpsid);
 	priv->wa_essregrestored = gsnpsid < USB_DWC2_GSNPSID_REV_5_00A;
+	priv->stuppktrcvd = gsnpsid >= USB_DWC2_GSNPSID_REV_3_00A;
 
 	priv->ghwcfg1 = sys_read32((mem_addr_t)&base->ghwcfg1);
 	ghwcfg2 = sys_read32((mem_addr_t)&base->ghwcfg2);
@@ -2557,6 +2558,19 @@ static inline void dwc2_handle_oepint(const struct device *dev)
 		}
 
 		if (status & USB_DWC2_DOEPINT_SETUP) {
+			if (dwc2_in_buffer_dma_mode(dev) && !priv->stuppktrcvd) {
+				/* Without StupPktRcvd the SETUP data is read here, DMAAddr
+				 * points past the last SETUP packet received
+				 */
+				mem_addr_t addr;
+
+				addr = sys_read32((mem_addr_t)&base->out_ep[0].doepdma) -
+				       priv->ep0_out_dma_offset;
+				sys_cache_data_invd_range((void *)(uintptr_t)(addr - 8), 8);
+				memcpy(priv->setup, (void *)(uintptr_t)(addr - 8),
+				       sizeof(priv->setup));
+			}
+
 			k_event_post(&priv->drv_evt, BIT(DWC2_DRV_EVT_SETUP));
 		}
 
