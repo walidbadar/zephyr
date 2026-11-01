@@ -43,6 +43,8 @@ struct dwc2_vendor_quirks {
 	int (*post_hibernation_entry)(const struct device *dev);
 	/* Called before hibernation exit sequence */
 	int (*pre_hibernation_exit)(const struct device *dev);
+	/* Called to translate a buffer address into the address the DMA uses */
+	void (*dma_addr_xlate)(const struct device *dev, mem_addr_t *const dma_addr);
 };
 
 /* Registers that have to be stored before Partial Power Down or Hibernation */
@@ -124,6 +126,8 @@ struct udc_dwc2_data {
 	/* Number of OUT endpoints including control endpoint */
 	uint8_t outeps;
 	uint8_t setup[8];
+	/* EP0 OUT DMA address minus its buffer address */
+	mem_addr_t ep0_out_dma_offset;
 };
 
 /* Driver configuration per instance */
@@ -210,5 +214,19 @@ DWC2_QUIRK_FUNC_DEFINE(caps)
 DWC2_QUIRK_FUNC_DEFINE(is_phy_clk_off)
 DWC2_QUIRK_FUNC_DEFINE(post_hibernation_entry)
 DWC2_QUIRK_FUNC_DEFINE(pre_hibernation_exit)
+
+static inline void dwc2_quirk_dma_addr_xlate(const struct device *dev,
+					     mem_addr_t *const dma_addr)
+{
+	const struct udc_dwc2_config *const config = dev->config;
+	const struct dwc2_vendor_quirks *const quirks =
+		COND_CODE_1(IS_EQ(DT_NUM_INST_STATUS_OKAY(snps_dwc2), 1),
+			(UDC_DWC2_VENDOR_QUIRK_GET(0); ARG_UNUSED(config);),
+			(config->quirks;))
+
+	if (quirks != NULL && quirks->dma_addr_xlate != NULL) {
+		quirks->dma_addr_xlate(dev, dma_addr);
+	}
+}
 
 #endif /* ZEPHYR_DRIVERS_USB_UDC_DWC2_H */
