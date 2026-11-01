@@ -41,6 +41,7 @@
 	soc {
 		#address-cells = <2>;
 		#size-cells = <1>;
+		dma-ranges = <0x0 0x0 0x0 0x0 0x80000000>;
 
 		sram0: memory@200000 {
 			compatible = "mmio-sram";

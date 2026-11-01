@@ -61,6 +61,8 @@
 	};
 
 	soc {
+		dma-ranges = <0xc0000000 0x0 0x3f000000>;
+
 		armctrl_intc: interrupt-controller@3f00b200 {
 			compatible = "brcm,bcm2835-armctrl-ic";
 			reg = <0x3f00b200 0x200>;
@@ -163,6 +165,21 @@
 			clocks = <&clk_core>;
 			#address-cells = <1>;
 			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		usb0: usb@3f980000 {
+			compatible = "brcm,bcm2835-usb", "snps,dwc2";
+			reg = <0x3f980000 0x10000>;
+			interrupts = <BCM2835_IRQ_USB IRQ_TYPE_LEVEL 0>;
+			num-in-eps = <8>;
+			num-out-eps = <8>;
+			ghwcfg1 = <0x00000000>;
+			ghwcfg2 = <0x228ddd50>;
+			ghwcfg4 = <0x1ff00020>;
+			g-rx-fifo-size = <788>;
+			g-np-tx-fifo-size = <32>;
+			g-tx-fifo-size = <512 512 512 512 512 256 256>;
 			status = "disabled";
 		};
 
