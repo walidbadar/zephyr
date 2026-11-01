@@ -120,6 +120,11 @@
 	};
 };
 
+zephyr_udc0: &usb0 {
+	power-domains = <&usb_hcd>;
+	status = "okay";
+};
+
 zephyr_uhc0: &usb0 {
 	power-domains = <&usb_hcd>;
 	status = "okay";
