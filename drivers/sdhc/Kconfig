@@ -74,6 +74,18 @@ config SDHC_STANDARD_CORE_IO_ACCESSORS
 	help
 	  Selected by host controller driver if custom IO accessors are used.
 
+config SDHC_STANDARD_CORE_ADMA2_64BIT
+	bool "64-bit ADMA2 addressing"
+	depends on SDHC_STANDARD_CORE
+	default y if 64BIT
+	help
+	  Use the 128-bit ADMA2 descriptor of the SD Host Controller
+	  Specification version 4.00, with a 64-bit address, instead of the
+	  64-bit descriptor with a 32-bit address. Needed when DMA buffers or
+	  the descriptor table can be above 4 GiB; without it such transfers
+	  fail. The controller must report 64-bit System Address Support for
+	  V4 (Capabilities bit 27).
+
 config SDHC_SUPPORTS_SCATTER_GATHER_TRANSFER
 	bool
 	help
