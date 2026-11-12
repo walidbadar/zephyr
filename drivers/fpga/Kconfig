@@ -38,6 +38,7 @@ config FPGA_LOAD_IMAGE
 
 source "drivers/fpga/Kconfig.altera_agilex_bridge"
 source "drivers/fpga/Kconfig.eos_s3"
+source "drivers/fpga/Kconfig.fake"
 source "drivers/fpga/Kconfig.ice40"
 source "drivers/fpga/Kconfig.mpfs"
 source "drivers/fpga/Kconfig.zynqmp"
