@@ -26,6 +26,16 @@ config FPGA_SHELL
 	help
 	  Enable FPGA Shell support.
 
+config FPGA_LOAD_IMAGE
+	bool "Load a bitstream from an MCUboot image"
+	depends on FLASH_MAP
+	depends on ZEPHYR_MCUBOOT_MODULE
+	help
+	  Enable fpga_load_image(), which loads a bitstream stored in a flash
+	  area behind an MCUboot image header. The header layout comes from
+	  the MCUboot module; MCUboot itself does not have to be the
+	  bootloader.
+
 source "drivers/fpga/Kconfig.altera_agilex_bridge"
 source "drivers/fpga/Kconfig.eos_s3"
 source "drivers/fpga/Kconfig.ice40"

@@ -14,6 +14,7 @@
 #define ZEPHYR_INCLUDE_DRIVERS_FPGA_H_
 
 #include <errno.h>
+#include <stddef.h>
 
 #include <zephyr/types.h>
 #include <zephyr/sys/util.h>
@@ -125,6 +126,30 @@ static inline int fpga_load(const struct device *dev, uint32_t *image_ptr,
 
 	return api->load(dev, image_ptr, img_size);
 }
+
+/**
+ * @brief Load a bitstream stored as an MCUboot image and program the FPGA
+ *
+ * The flash area starts with an MCUboot image header, as written by imgtool, followed by the
+ * bitstream. The header gives the offset and the size of the bitstream, which is read into
+ * @p buf and passed to fpga_load(). The image hash and signature are not verified.
+ *
+ * Available with @kconfig{CONFIG_FPGA_LOAD_IMAGE}.
+ *
+ * @param dev FPGA device structure.
+ * @param area_id ID of the flash area that holds the image.
+ * @param buf Buffer the bitstream is read into.
+ * @param buf_size Size of @p buf in bytes.
+ *
+ * @retval 0 Success.
+ * @retval -ENOEXEC No valid MCUboot image header.
+ * @retval -ENOEXEC The image does not fit in the flash area.
+ * @retval -ENOTSUP The image is encrypted or compressed.
+ * @retval -ENOTSUP The driver does not implement fpga_load().
+ * @retval -EFBIG The bitstream is larger than @p buf_size.
+ * @retval -errno Other negative errno code from the flash area or from fpga_load().
+ */
+int fpga_load_image(const struct device *dev, uint8_t area_id, uint32_t *buf, size_t buf_size);
 
 /**
  * @brief Turns on the FPGA.
