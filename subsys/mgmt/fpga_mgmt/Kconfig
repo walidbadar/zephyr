@@ -1,0 +1,67 @@
+# Copyright (c) 2026, Altera Corporation.
+# SPDX-License-Identifier: Apache-2.0
+
+DT_CHOSEN_Z_FPGA := zephyr,fpga
+
+menuconfig FPGA_MGMT
+	bool "FPGA bitstream management"
+	depends on FPGA
+	depends on FPGA_LOAD_CHUNKED
+	depends on $(dt_chosen_enabled,$(DT_CHOSEN_Z_FPGA))
+	help
+	  Load FPGA bitstreams from storage into the device of the zephyr,fpga
+	  chosen node, from the application or at boot.
+	  The storage backends read the bitstream through a buffer of
+	  FPGA_LOAD_CHUNK_SIZE bytes and pass it to the driver in chunks with
+	  fpga_load(), so the FPGA driver must accept chunked bitstreams.
+
+if FPGA_MGMT
+
+rsource "Kconfig.flash"
+rsource "Kconfig.fs"
+
+config FPGA_MGMT_LOAD_ON_BOOT
+	bool "Load the FPGA bitstream at boot"
+	depends on FPGA_MGMT_BACKEND_FLASH_BOOT_PARTITION || FPGA_MGMT_BACKEND_FS
+	help
+	  Load a bitstream from one storage backend during system
+	  initialization. If the load fails, an error is logged and the
+	  system boots with the FPGA left as it was.
+
+choice FPGA_MGMT_LOAD_ON_BOOT_BACKEND
+	prompt "Backend the bitstream is loaded from at boot"
+	default FPGA_MGMT_LOAD_ON_BOOT_FLASH
+	depends on FPGA_MGMT_LOAD_ON_BOOT
+	help
+	  The bitstream is loaded at boot from one backend. Select it here
+	  when both backends are enabled; the flash partition is the
+	  default.
+
+config FPGA_MGMT_LOAD_ON_BOOT_FLASH
+	bool "Flash partition"
+	depends on FPGA_MGMT_BACKEND_FLASH_BOOT_PARTITION
+	help
+	  Load the image in the partition of the
+	  zephyr,fpga-bitstream-partition chosen node.
+
+config FPGA_MGMT_LOAD_ON_BOOT_FS
+	bool "File system"
+	depends on FPGA_MGMT_BACKEND_FS
+	help
+	  Load the file FPGA_MGMT_BACKEND_FS_BOOT_FILE.
+
+endchoice
+
+config FPGA_MGMT_LOAD_ON_BOOT_PRIORITY
+	int "Init priority of the load at boot"
+	default APPLICATION_INIT_PRIORITY
+	depends on FPGA_MGMT_LOAD_ON_BOOT
+	help
+	  Priority, in the APPLICATION init level, at which the bitstream is
+	  loaded.
+
+module = FPGA_MGMT
+module-str = fpga_mgmt
+source "subsys/logging/Kconfig.template.log_config"
+
+endif # FPGA_MGMT

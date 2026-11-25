@@ -1,0 +1,46 @@
+# Copyright (c) 2026, Altera Corporation.
+# SPDX-License-Identifier: Apache-2.0
+
+DT_CHOSEN_Z_FPGA_BITSTREAM_PARTITION := zephyr,fpga-bitstream-partition
+
+config FPGA_MGMT_BACKEND_FLASH
+	bool "Flash partition backend"
+	default y
+	depends on FLASH_MAP
+	depends on ZEPHYR_MCUBOOT_MODULE
+	help
+	  Enable FPGA_MGMT_BACKEND_FLASH, which loads a bitstream stored in a
+	  flash partition as an MCUboot image, as written by imgtool, so the
+	  partition needs no file system to record the bitstream size. The
+	  image can be written with any tool, for example uploaded with the
+	  MCUmgr image management group. Only the image header layout comes
+	  from the MCUboot module; MCUboot itself does not have to be the
+	  bootloader.
+
+if FPGA_MGMT_BACKEND_FLASH
+
+config FPGA_MGMT_BACKEND_FLASH_VERIFY_SHA256
+	bool "Verify the SHA-256 hash of FPGA images"
+	default y
+	select PSA_CRYPTO
+	select PSA_WANT_ALG_SHA_256
+	help
+	  Check the SHA-256 hash TLV of the image before the bitstream is
+	  passed to the driver. This detects corrupted or partially written
+	  images. Image signatures are not verified.
+
+config FPGA_MGMT_BACKEND_FLASH_HASH_BUF_SIZE
+	int "FPGA image hash read size"
+	default 4096
+	depends on FPGA_MGMT_BACKEND_FLASH_VERIFY_SHA256
+	help
+	  Size in bytes of the static buffer the image is read from flash
+	  through to hash it.
+
+config FPGA_MGMT_BACKEND_FLASH_BOOT_PARTITION
+	def_bool $(dt_chosen_enabled,$(DT_CHOSEN_Z_FPGA_BITSTREAM_PARTITION))
+	help
+	  The zephyr,fpga-bitstream-partition chosen node names the partition
+	  that FPGA_MGMT_LOAD_ON_BOOT loads.
+
+endif # FPGA_MGMT_BACKEND_FLASH
