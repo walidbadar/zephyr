@@ -17,6 +17,10 @@ LOG_MODULE_REGISTER(fpga_fake, CONFIG_FPGA_LOG_LEVEL);
 
 struct fpga_fake_data {
 	bool loaded;
+	/* A bitstream is being passed in chunks */
+	bool chunked;
+	size_t size;
+	uint32_t crc;
 };
 
 static enum FPGA_status fpga_fake_get_status(const struct device *dev)
@@ -39,8 +43,23 @@ static int fpga_fake_load(const struct device *dev, uint32_t *image_ptr, uint32_
 {
 	struct fpga_fake_data *data = dev->data;
 
-	LOG_INF("%s: %u bytes, CRC-32 0x%08x", dev->name, img_size,
-		crc32_ieee((const uint8_t *)image_ptr, img_size));
+	if (!data->chunked) {
+		data->size = 0U;
+		data->crc = 0U;
+		data->loaded = false;
+	}
+
+	/* Chained over all chunks, so the result is that of a single call */
+	data->crc = crc32_ieee_update(data->crc, (const uint8_t *)image_ptr, img_size);
+	data->size += img_size;
+
+	/* A full chunk is followed by more data */
+	data->chunked = (img_size == CONFIG_FPGA_LOAD_CHUNK_SIZE);
+	if (data->chunked) {
+		return 0;
+	}
+
+	LOG_INF("%s: %zu bytes, CRC-32 0x%08x", dev->name, data->size, data->crc);
 
 	data->loaded = true;
 

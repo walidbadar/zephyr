@@ -106,6 +106,14 @@ static inline int fpga_reset(const struct device *dev)
 /**
  * @brief Load the bitstream and program the FPGA
  *
+ * With CONFIG_FPGA_LOAD_CHUNKED, which the driver selects, the bitstream can
+ * also be passed in consecutive calls from one thread: each call with
+ * exactly CONFIG_FPGA_LOAD_CHUNK_SIZE bytes starts or continues the
+ * bitstream, and a call with fewer bytes, which can be zero, ends it and
+ * returns the result of the configuration. The driver takes the data before
+ * it returns, so the buffer can be reused. A call that fails also ends the
+ * bitstream.
+ *
  * @param dev FPGA device structure.
  * @param image_ptr Pointer to bitstream.
  * @param img_size Bitstream size in bytes.

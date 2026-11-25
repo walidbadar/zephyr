@@ -6,6 +6,7 @@ config FPGA_FAKE
 	default y
 	depends on DT_HAS_ZEPHYR_FAKE_FPGA_ENABLED
 	select CRC
+	select FPGA_LOAD_CHUNKED
 	help
 	  Enable the fake FPGA driver. It accepts any bitstream and logs its
 	  size and CRC-32, for use on boards without an FPGA.

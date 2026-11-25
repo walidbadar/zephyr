@@ -26,6 +26,25 @@ config FPGA_SHELL
 	help
 	  Enable FPGA Shell support.
 
+config FPGA_LOAD_CHUNKED
+	bool
+	help
+	  Selected by drivers whose fpga_load() also accepts a bitstream in
+	  chunks of FPGA_LOAD_CHUNK_SIZE bytes.
+
+config FPGA_LOAD_CHUNK_SIZE
+	int "Bitstream chunk size"
+	default 65536
+	range 4096 16777216
+	depends on FPGA_LOAD_CHUNKED
+	help
+	  Size in bytes of the chunks a bitstream can be passed in, so that
+	  it does not have to be held in memory as a whole. A fpga_load()
+	  call with exactly this many bytes starts or continues a bitstream
+	  and is followed by further calls; a call with fewer bytes, which
+	  can be zero, ends it. A single call with any other size is a whole
+	  bitstream. Must be a multiple of 4.
+
 source "drivers/fpga/Kconfig.altera_agilex_bridge"
 source "drivers/fpga/Kconfig.eos_s3"
 source "drivers/fpga/Kconfig.fake"
