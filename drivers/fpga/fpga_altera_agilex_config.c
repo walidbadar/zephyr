@@ -225,7 +225,6 @@ static int32_t svc_client_close(void)
 	cmd_addr = k_malloc(cmd_size);
 
 	if (!cmd_addr) {
-		k_mutex_unlock(&config_state);
 		return -ENOMEM;
 	}
 
@@ -254,7 +253,6 @@ static int32_t svc_client_close(void)
 	}
 
 	curr_stage = FPGA_CONFIG_INIT;
-	k_mutex_unlock(&config_state);
 	return err;
 }
 
@@ -559,26 +557,22 @@ static void cmd_send_callback(uint32_t c_token, struct sip_svc_response *respons
 #if defined(CONFIG_SOC_AGILEX5)
 /*
  * Credit-pipelined RECONFIG_DATA: fill the SDM credit window (dma_count,
- * capped at AGX5_DATA_SLOTS), wait only when inflight == credits.
- * Wait-sequence (credits=1) A/B harness archived under
- * patches/snapshots/serialize-diag-wait-sequence.c.snippet.
+ * capped at AGX5_DATA_SLOTS), wait only when inflight == credits. The SDM
+ * reads each chunk from DRAM, and returns the credit once it has consumed it.
  */
-static int32_t send_reconfig_data(char *buf, size_t size)
+struct agx5_data_pipe {
+	uint32_t credits;
+	uint32_t inflight;
+	uint32_t slot;
+	uint32_t chunks;
+	bool last_submitted;
+};
+
+static struct agx5_data_pipe agx5_pipe;
+
+static int32_t agx5_data_pipe_init(void)
 {
 	struct fm_lock_data *sync_lock = &agx5_data_sync_lock;
-	struct sip_svc_request request;
-	uintptr_t phys_base = POINTER_TO_UINT(buf);
-	uintptr_t sdm_base;
-	uint32_t rbf_total = size;
-	uint32_t rbf_rem = rbf_total;
-	uint32_t rbf_sent = 0;
-	uint32_t inflight = 0;
-	uint32_t credits;
-	uint32_t slot = 0;
-	uint32_t chunk_n = 0;
-	bool last_submitted = false;
-	int32_t tid;
-	int32_t err = 0;
 
 	if (fpga_reconfig_dma_count == 0 || fpga_reconfig_dma_block_size == 0) {
 		LOG_ERR("Cannot send RECONFIG_DATA: DMA count=%u block=%u",
@@ -586,146 +580,183 @@ static int32_t send_reconfig_data(char *buf, size_t size)
 		return -EINVAL;
 	}
 
+	memset(&agx5_pipe, 0, sizeof(agx5_pipe));
+	agx5_pipe.credits = MIN(fpga_reconfig_dma_count, AGX5_DATA_SLOTS);
+
+	memset(sync_lock, 0, sizeof(*sync_lock));
+	memset(agx5_data_slot_used, 0, sizeof(agx5_data_slot_used));
+	k_sem_init(&sync_lock->reconfig_data_sem, 0, agx5_pipe.credits);
+	k_sem_init(&sync_lock->reconfig_data_send_done_sem, 0, 1);
+
+	return 0;
+}
+
+/* Wait for a free credit and return its mailbox slot, or a negative errno */
+static int32_t agx5_data_slot_get(void)
+{
+	struct fm_lock_data *sync_lock = &agx5_data_sync_lock;
+
+	while (!sync_lock->response_status) {
+		if (agx5_pipe.inflight < agx5_pipe.credits) {
+			for (uint32_t s = 0; s < agx5_pipe.credits; s++) {
+				agx5_pipe.slot = (agx5_pipe.slot + 1U) % agx5_pipe.credits;
+				if (agx5_data_slot_used[agx5_pipe.slot] == 0U) {
+					return (int32_t)agx5_pipe.slot;
+				}
+			}
+		}
+
+		if (k_sem_take(&sync_lock->reconfig_data_sem,
+			       K_MSEC(RECONFIG_DATA_CHUNK_TIMEOUT_MS)) != 0) {
+			LOG_ERR("RECONFIG_DATA wait timeout (inflight=%u)", agx5_pipe.inflight);
+			return -ETIMEDOUT;
+		}
+		if (agx5_pipe.inflight > 0U) {
+			agx5_pipe.inflight--;
+		}
+	}
+
+	return -EIO;
+}
+
+/* Send one RECONFIG_DATA command for len bytes at sdm_addr (offset from DRAM_BASE) */
+static int32_t agx5_data_submit(uint32_t slot, uint32_t sdm_addr, uint32_t len, bool last)
+{
+	struct sip_svc_request request;
+	uint32_t *cmd = mbox_data_cmd[slot];
+	uint32_t *resp = mbox_data_resp[slot];
+	struct fm_private_data *priv = &agx5_data_priv[slot];
+	int32_t tid;
+
+	agx5_data_slot_used[slot] = 1U;
+	memset(cmd, 0, FPGA_MB_CMD_WORDS * sizeof(uint32_t));
+	memset(resp, 0, FPGA_MB_RESP_WORDS * sizeof(uint32_t));
+	memset(priv, 0, sizeof(*priv));
+	priv->private_data_lock = &agx5_data_sync_lock;
+	priv->reconfig_data_send_done = last ? 1U : 0U;
+
+	cmd[0] = MBOX_REQUEST_HEADER(FPGA_RECONFIG_DATA, RECONFIG_DATA_MB_CMD_INDIRECT_MODE,
+				     RECONFIG_DATA_MB_CMD_LENGTH);
+	cmd[1] = MBOX_RECONFIG_REQUEST_DATA_FORMAT(RECONFIG_DATA_MB_CMD_DIRECT_COUNT,
+						   RECONFIG_DATA_MB_CMD_INDIRECT_ARG,
+						   RECONFIG_DATA_MB_CMD_INDIRECT_RESPONSE);
+	cmd[2] = sdm_addr;
+	cmd[3] = len;
+
+	sys_cache_data_flush_range(cmd, RECONFIG_DATA_MB_CMD_SIZE);
+
+	memset(&request, 0, sizeof(request));
+	request.header = SIP_SVC_PROTO_HEADER(SIP_SVC_PROTO_CMD_ASYNC, 0);
+	request.a0 = SMC_FUNC_ID_MAILBOX_SEND_COMMAND;
+	request.a2 = (uint64_t)cmd;
+	request.a3 = (uint64_t)RECONFIG_DATA_MB_CMD_SIZE;
+	request.resp_data_addr = (uint64_t)resp;
+	request.resp_data_size = FPGA_MB_RESPONSE_MEM_SIZE;
+	request.priv_data = priv;
+
+	LOG_DBG("RECONFIG_DATA submit #%u slot=%u sdm=0x%x len=%u inflight=%u",
+		agx5_pipe.chunks, slot, sdm_addr, len, agx5_pipe.inflight + 1U);
+
+	tid = sip_svc_send(mb_smc_dev, mb_client_token, &request, cmd_send_callback);
+	if (tid == SIP_SVC_ID_INVALID) {
+		agx5_data_slot_used[slot] = 0U;
+		LOG_ERR("RECONFIG_DATA submit failed");
+		return -EBUSY;
+	}
+
+	agx5_pipe.inflight++;
+	agx5_pipe.chunks++;
+	if (last) {
+		agx5_pipe.last_submitted = true;
+	}
+
+	return 0;
+}
+
+/* Wait for all submitted chunks, then for the reply to the last one */
+static int32_t agx5_data_drain(void)
+{
+	struct fm_lock_data *sync_lock = &agx5_data_sync_lock;
+	int32_t err = 0;
+
+	while (agx5_pipe.inflight > 0U) {
+		if (k_sem_take(&sync_lock->reconfig_data_sem,
+			       K_MSEC(RECONFIG_DATA_CHUNK_TIMEOUT_MS)) != 0) {
+			LOG_ERR("RECONFIG_DATA drain timeout (inflight=%u)", agx5_pipe.inflight);
+			return -ETIMEDOUT;
+		}
+		agx5_pipe.inflight--;
+	}
+
+	if (agx5_pipe.last_submitted && !sync_lock->response_status) {
+		if (k_sem_take(&sync_lock->reconfig_data_send_done_sem,
+			       K_MSEC(RECONFIG_DATA_CHUNK_TIMEOUT_MS)) != 0) {
+			LOG_ERR("RECONFIG_DATA last-chunk done timeout");
+			err = -ETIMEDOUT;
+		}
+	}
+
+	if (sync_lock->response_status) {
+		err = -EIO;
+	}
+
+	return err;
+}
+
+static int32_t send_reconfig_data(char *buf, size_t size)
+{
+	uintptr_t phys_base = POINTER_TO_UINT(buf);
+	uintptr_t sdm_base;
+	uint32_t sent = 0;
+	int32_t slot;
+	int32_t err;
+
 	if (phys_base < AGX5_DRAM_BASE) {
 		LOG_ERR("Bitstream addr 0x%lx below DRAM_BASE", (unsigned long)phys_base);
 		return -EINVAL;
 	}
 	sdm_base = phys_base - (uintptr_t)AGX5_DRAM_BASE;
 
-	credits = fpga_reconfig_dma_count;
-	if (credits > AGX5_DATA_SLOTS) {
-		credits = AGX5_DATA_SLOTS;
+	err = agx5_data_pipe_init();
+	if (err != 0) {
+		return err;
 	}
-
-	memset(sync_lock, 0, sizeof(*sync_lock));
-	memset(agx5_data_slot_used, 0, sizeof(agx5_data_slot_used));
-	k_sem_init(&sync_lock->reconfig_data_sem, 0, credits);
-	k_sem_init(&sync_lock->reconfig_data_send_done_sem, 0, 1);
 
 	sys_cache_data_flush_range(buf, size);
 
-	LOG_DBG("RECONFIG_DATA: phys 0x%lx sdm 0x%lx (%u bytes) credits=%u block=%u",
-		(unsigned long)phys_base, (unsigned long)sdm_base, rbf_total, credits,
+	LOG_DBG("RECONFIG_DATA: phys 0x%lx sdm 0x%lx (%zu bytes) credits=%u block=%u",
+		(unsigned long)phys_base, (unsigned long)sdm_base, size, agx5_pipe.credits,
 		fpga_reconfig_dma_block_size);
 
-	while ((rbf_rem > 0 || inflight > 0) && !sync_lock->response_status) {
-		if (rbf_rem > 0 && inflight < credits) {
-			uint32_t chunk = (rbf_rem < fpga_reconfig_dma_block_size)
-						 ? rbf_rem
-						 : fpga_reconfig_dma_block_size;
-			uint32_t *cmd;
-			uint32_t *resp;
-			struct fm_private_data *priv;
-			uint32_t s;
-			uint32_t sdm_addr;
-			bool found = false;
+	while (sent < size) {
+		uint32_t chunk = MIN(size - sent, fpga_reconfig_dma_block_size);
 
-			for (s = 0; s < credits; s++) {
-				slot = (slot + 1) % credits;
-				if (!agx5_data_slot_used[slot]) {
-					found = true;
-					break;
-				}
-			}
-			if (!found) {
-				goto wait_one;
-			}
-
-			agx5_data_slot_used[slot] = 1;
-			cmd = mbox_data_cmd[slot];
-			resp = mbox_data_resp[slot];
-			priv = &agx5_data_priv[slot];
-			memset(cmd, 0, FPGA_MB_CMD_WORDS * sizeof(uint32_t));
-			memset(resp, 0, FPGA_MB_RESP_WORDS * sizeof(uint32_t));
-			memset(priv, 0, sizeof(*priv));
-			priv->private_data_lock = sync_lock;
-			priv->heap_allocated = 0;
-
-			sdm_addr = (uint32_t)(sdm_base + rbf_sent);
-			cmd[0] = MBOX_REQUEST_HEADER(FPGA_RECONFIG_DATA,
-						     RECONFIG_DATA_MB_CMD_INDIRECT_MODE,
-						     RECONFIG_DATA_MB_CMD_LENGTH);
-			cmd[1] = MBOX_RECONFIG_REQUEST_DATA_FORMAT(
-				RECONFIG_DATA_MB_CMD_DIRECT_COUNT,
-				RECONFIG_DATA_MB_CMD_INDIRECT_ARG,
-				RECONFIG_DATA_MB_CMD_INDIRECT_RESPONSE);
-			cmd[2] = sdm_addr;
-			cmd[3] = chunk;
-			if (chunk >= rbf_rem) {
-				priv->reconfig_data_send_done = 1;
-				last_submitted = true;
-			}
-
-			sys_cache_data_flush_range(cmd, RECONFIG_DATA_MB_CMD_SIZE);
-
-			memset(&request, 0, sizeof(request));
-			request.header = SIP_SVC_PROTO_HEADER(SIP_SVC_PROTO_CMD_ASYNC, 0);
-			request.a0 = SMC_FUNC_ID_MAILBOX_SEND_COMMAND;
-			request.a2 = (uint64_t)cmd;
-			request.a3 = (uint64_t)RECONFIG_DATA_MB_CMD_SIZE;
-			request.resp_data_addr = (uint64_t)resp;
-			request.resp_data_size = FPGA_MB_RESPONSE_MEM_SIZE;
-			request.priv_data = priv;
-
-			LOG_DBG("RECONFIG_DATA submit #%u slot=%u sdm=0x%x len=%u "
-				"inflight=%u rem=%u",
-				chunk_n, slot, sdm_addr, chunk, inflight + 1, rbf_rem);
-
-			tid = sip_svc_send(mb_smc_dev, mb_client_token, &request,
-					   cmd_send_callback);
-			if (tid == SIP_SVC_ID_INVALID) {
-				agx5_data_slot_used[slot] = 0;
-				LOG_ERR("RECONFIG_DATA submit failed");
-				err = -EBUSY;
-				break;
-			}
-			ARG_UNUSED(tid);
-
-			rbf_sent += chunk;
-			rbf_rem = rbf_total - rbf_sent;
-			inflight++;
-			chunk_n++;
-			continue;
-		}
-
-wait_one:
-		if (k_sem_take(&sync_lock->reconfig_data_sem,
-			       K_MSEC(RECONFIG_DATA_CHUNK_TIMEOUT_MS)) != 0) {
-			LOG_ERR("RECONFIG_DATA wait timeout (inflight=%u rem=%u)",
-				inflight, rbf_rem);
-			err = -ETIMEDOUT;
+		slot = agx5_data_slot_get();
+		if (slot < 0) {
+			err = slot;
 			break;
 		}
-		if (inflight) {
-			inflight--;
-		}
-	}
 
-	while (inflight > 0) {
-		if (k_sem_take(&sync_lock->reconfig_data_sem,
-			       K_MSEC(RECONFIG_DATA_CHUNK_TIMEOUT_MS)) != 0) {
-			LOG_ERR("RECONFIG_DATA drain timeout (inflight=%u)", inflight);
-			err = err ? err : -ETIMEDOUT;
+		err = agx5_data_submit(slot, (uint32_t)(sdm_base + sent), chunk,
+				       (sent + chunk) == size);
+		if (err != 0) {
 			break;
 		}
-		inflight--;
+		sent += chunk;
 	}
 
-	if (!err && last_submitted && !sync_lock->response_status) {
-		if (k_sem_take(&sync_lock->reconfig_data_send_done_sem,
-			       K_MSEC(RECONFIG_DATA_CHUNK_TIMEOUT_MS)) != 0) {
-			LOG_ERR("RECONFIG_DATA last-chunk done timeout");
-			return -ETIMEDOUT;
-		}
+	/* Wait for chunks in flight also on error: their slots are reused next time */
+	if (err == 0) {
+		err = agx5_data_drain();
+	} else {
+		(void)agx5_data_drain();
 	}
-	if (err) {
-		return err;
+
+	if (err == 0) {
+		LOG_DBG("RECONFIG_DATA done (%u submits, %u bytes)", agx5_pipe.chunks, sent);
 	}
-	if (sync_lock->response_status) {
-		return -EINVAL;
-	}
-	LOG_DBG("RECONFIG_DATA done (%u submits, %u bytes)", chunk_n, rbf_sent);
-	return 0;
+
+	return err;
 }
 #else /* !CONFIG_SOC_AGILEX5 */
 static int32_t send_reconfig_data(char *buf, size_t size)
@@ -947,6 +978,173 @@ static int32_t smc_send(uint32_t cmd_type, uint64_t function_identifier, uint32_
 	return 0;
 }
 
+/* Mailbox state of the sequence in progress, serialized by config_state */
+static struct fm_lock_data seq_lock;
+static struct fm_private_data seq_priv;
+
+/* Send one mailbox command; cmd_send_callback() moves curr_stage on */
+static int32_t reconfig_mbox_cmd(uint32_t cmd_id)
+{
+	int32_t ret;
+
+	ret = smc_send(SIP_SVC_PROTO_CMD_ASYNC, SMC_FUNC_ID_MAILBOX_SEND_COMMAND, cmd_id,
+		       &seq_priv);
+	if (ret != 0) {
+		LOG_ERR("Mailbox send failed cmd_id=0x%x", cmd_id);
+		return ret;
+	}
+
+	(void)k_sem_take(&seq_lock.reconfig_data_sem, K_FOREVER);
+
+	return 0;
+}
+
+/**
+ * @brief Start a full reconfiguration, up to the bitstream data
+ *
+ * Isolates the fabric, opens the SiP session and sends CANCEL and RECONFIG.
+ * On success the SDM DMA parameters are known and curr_stage is
+ * FPGA_RECONFIG_DATA_SEND. On failure nothing is left open; the bridges stay
+ * off.
+ *
+ * @return 0 on success or negative value on fail
+ */
+static int32_t reconfig_seq_begin(void)
+{
+	const struct device *fpga_dev = DEVICE_DT_GET(DT_NODELABEL(fpga0));
+	int32_t ret;
+
+	memset(&seq_priv, 0, sizeof(seq_priv));
+	memset(&seq_lock, 0, sizeof(seq_lock));
+	seq_priv.private_data_lock = &seq_lock;
+	k_sem_init(&seq_lock.reconfig_data_sem, 0, 1);
+	fm_reconfig_succeeded = false;
+
+	if (!device_is_ready(fpga_dev)) {
+		LOG_ERR("fpga0 not ready");
+		return -ENODEV;
+	}
+
+	/*
+	 * Full load contract: bridge off → program → bridge on.
+	 * SiP sessions are serial (bridge client, then manager client).
+	 * -EIO from off means fabric not ready yet (typical HPS-first); continue.
+	 */
+	LOG_DBG("-> BRIDGE_OFF (full load)");
+	ret = fpga_off(fpga_dev);
+	if (ret != 0 && ret != -EIO) {
+		LOG_ERR("BRIDGE_OFF failed ret=%d", ret);
+		return ret;
+	}
+	if (ret == -EIO) {
+		LOG_DBG("BRIDGE_OFF: FPGA not ready, assume already isolated");
+	}
+
+	curr_stage = FPGA_CONFIG_INIT;
+
+	LOG_DBG("-> CONFIG_INIT (SiP open)");
+	ret = svc_client_open();
+	if (ret != 0) {
+		LOG_ERR("CONFIG_INIT (SiP open) failed ret=%d", ret);
+		return ret;
+	}
+
+#if defined(CONFIG_SOC_AGILEX5)
+	/*
+	 * U-Boot path: FPGA_CONFIG_START does isolation (CONFIG_COMP), remapper,
+	 * CANCEL, RECONFIG. Skip Zephyr CONFIG_COMP; CANCEL/RECONFIG below take
+	 * the mailbox session for V2 DATA.
+	 */
+	LOG_DBG("-> FPGA_CONFIG_START");
+	ret = agx5_fpga_config_start();
+	if (ret != 0) {
+		LOG_ERR("FPGA_CONFIG_START failed ret=%d", ret);
+		goto close;
+	}
+#endif
+
+	LOG_DBG("-> CANCEL");
+	curr_stage = FPGA_CANCEL_STAGE;
+	ret = reconfig_mbox_cmd(FPGA_CANCEL);
+	if (ret != 0) {
+		goto close;
+	}
+	if (curr_stage != FPGA_RECONFIG_SEND) {
+		ret = -EIO;
+		goto close;
+	}
+
+	LOG_DBG("-> RECONFIG");
+	ret = reconfig_mbox_cmd(FPGA_RECONFIG);
+	if (ret != 0) {
+		goto close;
+	}
+	if (curr_stage != FPGA_RECONFIG_DATA_SEND) {
+		ret = -EIO;
+		goto close;
+	}
+
+	return 0;
+
+close:
+	curr_stage = FPGA_RECONFIG_EXIT;
+	(void)svc_client_close();
+	return ret;
+}
+
+/**
+ * @brief End a reconfiguration started with reconfig_seq_begin()
+ *
+ * When all the data went through, polls RECONFIG_STATUS until the SDM
+ * reports success or failure. Closes the SiP session and re-enables the
+ * bridges on success.
+ *
+ * @param[in] data_ok True when the whole bitstream was accepted by the SDM
+ *
+ * @return 0 if the FPGA is configured, negative value otherwise
+ */
+static int32_t reconfig_seq_end(bool data_ok)
+{
+	uint32_t retry_count;
+	int32_t ret;
+
+	if (data_ok) {
+		curr_stage = FPGA_RECONFIG_CHECK_STATUS;
+		for (retry_count = 0; retry_count < RECONFIG_STATUS_RETRY_COUNT; retry_count++) {
+			k_sleep(K_MSEC(RECONFIG_STATUS_INTERVAL_DELAY_US));
+			LOG_DBG("-> RECONFIG_STATUS poll %u/%u", retry_count + 1U,
+				RECONFIG_STATUS_RETRY_COUNT);
+			if (reconfig_mbox_cmd(FPGA_RECONFIG_STATUS) != 0) {
+				break;
+			}
+			if (curr_stage == FPGA_RECONFIG_EXIT) {
+				break;
+			}
+		}
+		if (retry_count == RECONFIG_STATUS_RETRY_COUNT) {
+			LOG_ERR("RECONFIG_STATUS timeout after %u polls",
+				RECONFIG_STATUS_RETRY_COUNT);
+		}
+	}
+
+	curr_stage = FPGA_RECONFIG_EXIT;
+	LOG_INF("FPGA config sequence finished (exit ok=%d)", fm_reconfig_succeeded);
+	(void)svc_client_close();
+
+	if (!fm_reconfig_succeeded) {
+		return -EIO;
+	}
+
+	/* Manager SiP closed; safe to use fpga0 bridge client. */
+	LOG_DBG("-> BRIDGE_ON (full load success)");
+	ret = fpga_on(DEVICE_DT_GET(DT_NODELABEL(fpga0)));
+	if (ret != 0) {
+		LOG_ERR("BRIDGE_ON failed ret=%d (fabric programmed, still isolated)", ret);
+	}
+
+	return 0;
+}
+
 /**
  * @brief Full FPGA reconfiguration thread (bridge off → program → bridge on).
  *
@@ -958,181 +1156,24 @@ static void reconfig_start(void *p1, void *p2, void *p3)
 {
 	char *image_ptr = (char *)p1;
 	uint32_t img_size = POINTER_TO_UINT(p2);
-	uint32_t ret = 0;
-	uint32_t cmd_type = 0;
-	uint64_t function_identifier = 0;
-	uint32_t cmd_id = 0;
-	uint32_t retry_count = 0;
-	struct fm_private_data private_data;
+	bool data_ok;
 
 	ARG_UNUSED(p3);
-
-	/*
-	 * Must zero heap_allocated: callback k_free()s only when that flag is
-	 * set. Uninitialized stack garbage caused k_free(stack) → sip_svc
-	 * Data Abort with FAR 0xaaa… right after CANCEL.
-	 */
-	memset(&private_data, 0, sizeof(private_data));
-
-	private_data.private_data_lock =
-		(struct fm_lock_data *)k_malloc(sizeof(struct fm_lock_data));
-	if (!private_data.private_data_lock) {
-		LOG_ERR("Failed to allocate command memory");
-		k_mutex_unlock(&config_state);
-		return;
-	}
-	memset(private_data.private_data_lock, 0, sizeof(*private_data.private_data_lock));
-
-	k_sem_init(&(private_data.private_data_lock->reconfig_data_sem), 0, 1);
-	fm_reconfig_succeeded = false;
 
 	LOG_INF("FPGA FULL config start (V2 mailbox): image %p size %u",
 		(void *)image_ptr, img_size);
 
-	/*
-	 * Full load contract: bridge off → program → bridge on.
-	 * SiP sessions are serial (bridge client, then manager client).
-	 * -EIO from off means fabric not ready yet (typical HPS-first); continue.
-	 */
-	{
-		const struct device *fpga_dev = DEVICE_DT_GET(DT_NODELABEL(fpga0));
-		int32_t br_ret;
-
-		if (!device_is_ready(fpga_dev)) {
-			LOG_ERR("fpga0 not ready");
-			k_mutex_unlock(&config_state);
-			k_free(private_data.private_data_lock);
-			return;
-		}
-
-		LOG_DBG("-> BRIDGE_OFF (full load)");
-		br_ret = fpga_off(fpga_dev);
-		if (br_ret && br_ret != -EIO) {
-			LOG_ERR("BRIDGE_OFF failed ret=%d", br_ret);
-			k_mutex_unlock(&config_state);
-			k_free(private_data.private_data_lock);
-			return;
-		}
-		if (br_ret == -EIO) {
-			LOG_DBG("BRIDGE_OFF: FPGA not ready, assume already isolated");
-		}
+	if (reconfig_seq_begin() != 0) {
+		return;
 	}
 
-	curr_stage = FPGA_CONFIG_INIT;
-
-	while (true) {
-		function_identifier = 0;
-		cmd_id = 0;
-		cmd_type = 0;
-
-		switch (curr_stage) {
-		case FPGA_CONFIG_INIT:
-			LOG_DBG("-> CONFIG_INIT (SiP open)");
-			ret = svc_client_open();
-			if (!ret) {
-#if defined(CONFIG_SOC_AGILEX5)
-				/*
-				 * U-Boot path: FPGA_CONFIG_START does isolation
-				 * (CONFIG_COMP), remapper, CANCEL, RECONFIG.
-				 * Skip Zephyr CONFIG_COMP; CANCEL/RECONFIG below
-				 * take the mailbox session for V2 DATA.
-				 */
-				LOG_DBG("-> FPGA_CONFIG_START");
-				ret = agx5_fpga_config_start();
-				if (ret) {
-					LOG_ERR("FPGA_CONFIG_START failed ret=%d", ret);
-					k_free(private_data.private_data_lock);
-					(void)svc_client_close();
-					return;
-				}
-#endif
-				curr_stage = FPGA_CANCEL_STAGE;
-			} else {
-				LOG_ERR("CONFIG_INIT (SiP open) failed ret=%d", ret);
-				k_mutex_unlock(&config_state);
-				k_free(private_data.private_data_lock);
-				return;
-			}
-			break;
-
-		case FPGA_CANCEL_STAGE:
-			LOG_DBG("-> CANCEL");
-			cmd_type = SIP_SVC_PROTO_CMD_ASYNC;
-			function_identifier = SMC_FUNC_ID_MAILBOX_SEND_COMMAND;
-			cmd_id = FPGA_CANCEL;
-			break;
-
-		case FPGA_RECONFIG_SEND:
-			LOG_DBG("-> RECONFIG");
-			cmd_type = SIP_SVC_PROTO_CMD_ASYNC;
-			function_identifier = SMC_FUNC_ID_MAILBOX_SEND_COMMAND;
-			cmd_id = FPGA_RECONFIG;
-			break;
-
-		case FPGA_RECONFIG_DATA_SEND:
-			LOG_DBG("-> RECONFIG_DATA");
-			if (send_reconfig_data(image_ptr, img_size)) {
-				LOG_ERR("RECONFIG_DATA send failed");
-				curr_stage = FPGA_RECONFIG_EXIT;
-			} else {
-				LOG_DBG("RECONFIG_DATA done");
-				curr_stage = FPGA_RECONFIG_CHECK_STATUS;
-			}
-			continue;
-
-		case FPGA_RECONFIG_CHECK_STATUS:
-			LOG_DBG("-> RECONFIG_STATUS poll %u/%u",
-				retry_count + 1, RECONFIG_STATUS_RETRY_COUNT);
-			cmd_type = SIP_SVC_PROTO_CMD_ASYNC;
-			function_identifier = SMC_FUNC_ID_MAILBOX_SEND_COMMAND;
-			cmd_id = FPGA_RECONFIG_STATUS;
-			if (retry_count++ == RECONFIG_STATUS_RETRY_COUNT) {
-				LOG_ERR("RECONFIG_STATUS timeout after %u polls",
-					RECONFIG_STATUS_RETRY_COUNT);
-				curr_stage = FPGA_RECONFIG_EXIT;
-				retry_count = 0;
-				continue;
-			}
-			k_sleep(K_MSEC(RECONFIG_STATUS_INTERVAL_DELAY_US));
-			break;
-
-		case FPGA_RECONFIG_EXIT:
-			LOG_INF("FPGA config sequence finished (exit ok=%d)",
-				fm_reconfig_succeeded);
-			k_free(private_data.private_data_lock);
-			(void)svc_client_close();
-			/* Manager SiP closed; safe to use fpga0 bridge client. */
-			if (fm_reconfig_succeeded) {
-				const struct device *fpga_dev =
-					DEVICE_DT_GET(DT_NODELABEL(fpga0));
-				int32_t br_ret;
-
-				LOG_DBG("-> BRIDGE_ON (full load success)");
-				br_ret = fpga_on(fpga_dev);
-				if (br_ret) {
-					LOG_ERR("BRIDGE_ON failed ret=%d "
-						"(fabric programmed, still isolated)",
-						br_ret);
-				}
-			}
-			return;
-		}
-
-		if (function_identifier) {
-			ret = smc_send(cmd_type, function_identifier, cmd_id, &private_data);
-			if (ret == -EBUSY) {
-				LOG_ERR("Mailbox send failed at stage cmd_id=0x%x", cmd_id);
-				k_free(private_data.private_data_lock);
-				(void)svc_client_close();
-				return;
-			}
-			/* Wait for callback */
-			if (k_sem_take(&(private_data.private_data_lock->reconfig_data_sem),
-				       K_FOREVER) != 0) {
-				return;
-			}
-		}
+	LOG_DBG("-> RECONFIG_DATA");
+	data_ok = (send_reconfig_data(image_ptr, img_size) == 0);
+	if (!data_ok) {
+		LOG_ERR("RECONFIG_DATA send failed");
 	}
+
+	(void)reconfig_seq_end(data_ok);
 }
 
 /* Validate the Reconfig status response */
@@ -1173,7 +1214,6 @@ static uint32_t config_thread_start(char *image_ptr, uint32_t img_size)
 
 	if (!config_tid) {
 		LOG_ERR("Failed to Create Thread !!");
-		k_mutex_unlock(&config_state);
 		return -EINVAL;
 	}
 
@@ -1211,6 +1251,7 @@ int32_t altera_fpga_config_load(char *image_ptr, uint32_t img_size)
 	fm_reconfig_succeeded = false;
 
 	if (config_thread_start(image_ptr, img_size)) {
+		k_mutex_unlock(&config_state);
 		return -EINVAL;
 	}
 
@@ -1221,7 +1262,6 @@ int32_t altera_fpga_config_load(char *image_ptr, uint32_t img_size)
 	 */
 	(void)k_thread_join(&config_thread_data, K_FOREVER);
 
-	/* The mutex belongs to this thread, the config thread cannot release it */
 	k_mutex_unlock(&config_state);
 
 	return fm_reconfig_succeeded ? 0 : -EIO;
