@@ -1,0 +1,16 @@
+/*
+ * Copyright (c) 2026, Altera Corporation.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/ {
+	chosen {
+		zephyr,fpga = &fpga0;
+		/* MCUboot image at offset 0x04400000 of the QSPI flash */
+		zephyr,fpga-bitstream-partition = &bitstream_partition;
+	};
+};
+
+&sip_smc {
+	status = "okay";
+};

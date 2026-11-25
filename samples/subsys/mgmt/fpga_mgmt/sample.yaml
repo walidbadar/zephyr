@@ -1,0 +1,14 @@
+sample:
+  name: FPGA bitstream management
+  description: Load an FPGA bitstream from a flash partition at boot
+common:
+  tags:
+    - fpga
+    - mgmt
+  build_only: true
+tests:
+  sample.mgmt.fpga_mgmt:
+    platform_allow:
+      - intel_socfpga_agilex5_socdk
+    integration_platforms:
+      - intel_socfpga_agilex5_socdk
