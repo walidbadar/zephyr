@@ -1222,9 +1222,122 @@ static uint32_t config_thread_start(char *image_ptr, uint32_t img_size)
 	return 0;
 }
 
+#if defined(CONFIG_SOC_AGILEX5)
+/*
+ * Chunked load: the SDM reads RECONFIG_DATA from DRAM after the command is
+ * sent, so each chunk is copied into a staging buffer that belongs to its
+ * mailbox slot and is reused only once the SDM has returned that slot.
+ */
+static uint8_t agx5_stage[AGX5_DATA_SLOTS][CONFIG_FPGA_LOAD_CHUNK_SIZE] __aligned(64);
+static bool agx5_stream_active;
+
+/* Called from the thread that holds config_state for the whole bitstream */
+static int32_t agx5_stream_end(bool data_ok)
+{
+	int32_t ret;
+
+	/* Wait for chunks in flight also on error: their slots are reused next time */
+	if (agx5_data_drain() != 0) {
+		data_ok = false;
+	}
+
+	ret = reconfig_seq_end(data_ok);
+	if ((ret == 0) && !data_ok) {
+		ret = -EIO;
+	}
+
+	agx5_stream_active = false;
+	k_mutex_unlock(&config_state);
+
+	return ret;
+}
+
+static int32_t agx5_stream_begin(void)
+{
+	int32_t ret;
+
+	if (k_mutex_lock(&config_state, K_NO_WAIT) != 0) {
+		LOG_ERR("Failed to acquire mutex lock");
+		return -EBUSY;
+	}
+
+	LOG_INF("FPGA FULL config start (V2 mailbox, chunked)");
+
+	ret = reconfig_seq_begin();
+	if (ret != 0) {
+		k_mutex_unlock(&config_state);
+		return ret;
+	}
+
+	ret = agx5_data_pipe_init();
+	if ((ret == 0) && (CONFIG_FPGA_LOAD_CHUNK_SIZE > fpga_reconfig_dma_block_size)) {
+		LOG_ERR("Chunk size %u exceeds the SDM DMA block size %u",
+			CONFIG_FPGA_LOAD_CHUNK_SIZE, fpga_reconfig_dma_block_size);
+		ret = -EINVAL;
+	}
+	if (ret != 0) {
+		(void)reconfig_seq_end(false);
+		k_mutex_unlock(&config_state);
+		return ret;
+	}
+
+	agx5_stream_active = true;
+
+	return 0;
+}
+
+/* One fpga_load() call of a chunked bitstream; a short chunk is the last one */
+static int32_t agx5_stream_chunk(const char *buf, uint32_t len)
+{
+	bool last = (len < CONFIG_FPGA_LOAD_CHUNK_SIZE);
+	int32_t ret;
+
+	if (!agx5_stream_active) {
+		ret = agx5_stream_begin();
+		if (ret != 0) {
+			return ret;
+		}
+	}
+
+	if (len > 0U) {
+		uintptr_t sdm_addr;
+		int32_t slot;
+
+		slot = agx5_data_slot_get();
+		if (slot < 0) {
+			(void)agx5_stream_end(false);
+			return slot;
+		}
+
+		memcpy(agx5_stage[slot], buf, len);
+		sys_cache_data_flush_range(agx5_stage[slot], len);
+
+		sdm_addr = POINTER_TO_UINT(agx5_stage[slot]) - (uintptr_t)AGX5_DRAM_BASE;
+		ret = agx5_data_submit(slot, (uint32_t)sdm_addr, len, last);
+		if (ret != 0) {
+			(void)agx5_stream_end(false);
+			return ret;
+		}
+	}
+
+	return last ? agx5_stream_end(true) : 0;
+}
+#endif /* CONFIG_SOC_AGILEX5 */
+
 int32_t altera_fpga_config_load(char *image_ptr, uint32_t img_size)
 {
 	uintptr_t phys = POINTER_TO_UINT(image_ptr);
+
+#if defined(CONFIG_SOC_AGILEX5)
+	/* A full chunk starts or continues a bitstream, a shorter one ends it */
+	if (agx5_stream_active || (img_size == CONFIG_FPGA_LOAD_CHUNK_SIZE)) {
+		if ((image_ptr == NULL) && (img_size != 0U)) {
+			return -EFAULT;
+		}
+
+		return agx5_stream_chunk(image_ptr, img_size);
+	}
+#endif
 
 	if (image_ptr == NULL) {
 		return -EFAULT;

@@ -7,6 +7,7 @@ config ALTERA_AGILEX_BRIDGE_FPGA
 	bool "Altera/Intel SoCFPGA Agilex FPGA device"
 	depends on ARM_SIP_SVC_SUBSYS
 	select DEVICE_DEINIT_SUPPORT
+	select FPGA_LOAD_CHUNKED if SOC_AGILEX5
 	help
 	  Zephyr FPGA driver (fpga.h) for Agilex SoC FPGA control (fpga0).
 	  on/off: HPS↔FPGA bridge isolation. load/get_status: full fabric
